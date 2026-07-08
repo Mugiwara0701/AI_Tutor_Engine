@@ -1,0 +1,22 @@
+{
+  "uploads": [
+    {
+      "id": "topic-zip-1",
+      "class": "Class 12",
+      "subject": "Physics",
+      "chapter": "Chapter 1: Electric Charges and Fields",
+      "topicName": "Coulomb's Law",
+      "fileName": "coulombs-law.zip",
+      "uploadDate": "2026-06-28T10:00:00Z"
+    },
+    {
+      "id": "topic-zip-2",
+      "class": "Class 12",
+      "subject": "Chemistry",
+      "chapter": "Chapter 2: Electrostatic Potential",
+      "topicName": "Equipotential Surfaces",
+      "fileName": "equipotential-surfaces.zip",
+      "uploadDate": "2026-07-01T14:30:00Z"
+    }
+  ]
+}

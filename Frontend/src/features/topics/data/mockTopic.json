@@ -1,0 +1,103 @@
+{
+  "id": "topic-1",
+  "breadcrumb": {
+    "class": "Class 12",
+    "subject": "Physics",
+    "book": "Physics Part I",
+    "chapter": "Chapter 1: Electric Charges and Fields",
+    "topic": "Electric Field and Field Lines"
+  },
+  "title": "Electric Field and Field Lines",
+  "description": "Explains the concept of electric field as a region of influence around a charge, how field lines represent field direction and strength, and how to calculate field due to point charges and charge distributions.",
+  "status": "Complete",
+  "difficulty": "Medium",
+  "importance": "High",
+  "lastUpdated": "2026-07-02T10:15:00Z",
+  "learningTimeMinutes": 45,
+  "statusChips": [
+    { "label": "Master JSON Generated", "done": true },
+    { "label": "Master Prompt Generated", "done": true },
+    { "label": "ZIP Package Uploaded", "done": false }
+  ],
+  "stats": {
+    "concepts": 8,
+    "estimatedSlides": 22,
+    "learningTimeMinutes": 45,
+    "difficulty": "Medium",
+    "importance": "High"
+  },
+  "learningObjectives": [
+    "Define electric field and electric field intensity due to a point charge.",
+    "Draw and interpret electric field lines for single and multiple charges.",
+    "Apply the superposition principle to calculate net field due to a system of charges.",
+    "Distinguish between uniform and non-uniform electric fields.",
+    "Relate field line density to field strength."
+  ],
+  "generatedAssets": [
+    {
+      "key": "masterJson",
+      "label": "Master JSON",
+      "status": "Generated",
+      "version": "v1.4",
+      "updatedAt": "2026-07-02T10:15:00Z"
+    },
+    {
+      "key": "prompt",
+      "label": "Prompt",
+      "status": "Generated",
+      "version": "v1.3",
+      "updatedAt": "2026-07-01T16:40:00Z"
+    },
+    {
+      "key": "slides",
+      "label": "Slides (PPT)",
+      "status": "Generated",
+      "version": "v1.2",
+      "updatedAt": "2026-06-30T09:20:00Z"
+    },
+    {
+      "key": "narration",
+      "label": "Narration",
+      "status": "Generated",
+      "version": "v1.1",
+      "updatedAt": "2026-06-29T14:05:00Z"
+    },
+    {
+      "key": "quiz",
+      "label": "Quiz",
+      "status": "Pending",
+      "version": null,
+      "updatedAt": null
+    },
+    {
+      "key": "flashcards",
+      "label": "Flashcards",
+      "status": "Pending",
+      "version": null,
+      "updatedAt": null
+    },
+    {
+      "key": "mindmap",
+      "label": "Mind Map",
+      "status": "Generated",
+      "version": "v1.0",
+      "updatedAt": "2026-06-27T11:30:00Z"
+    }
+  ],
+  "prerequisites": [
+    { "id": "pre-1", "name": "Coulomb's Law and Point Charges" },
+    { "id": "pre-2", "name": "Vector Addition Basics" },
+    { "id": "pre-3", "name": "Concept of Electric Charge" }
+  ],
+  "keyVariables": [
+    { "symbol": "E", "name": "Electric field intensity" },
+    { "symbol": "q", "name": "Source charge" },
+    { "symbol": "r", "name": "Distance from charge" },
+    { "symbol": "k", "name": "Coulomb's constant" }
+  ],
+  "relatedTopics": [
+    { "id": "topic-2", "name": "Electric Flux and Gauss's Law" },
+    { "id": "topic-3", "name": "Electric Dipole" },
+    { "id": "topic-4", "name": "Continuous Charge Distribution" }
+  ]
+}

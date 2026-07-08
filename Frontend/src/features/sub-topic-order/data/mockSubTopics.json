@@ -1,0 +1,58 @@
+{
+  "topic": {
+    "id": "topic-1",
+    "name": "Electric Field and Field Lines",
+    "breadcrumb": "Class 12 > Physics > Physics Part I > Chapter 1 > Electric Field and Field Lines"
+  },
+  "subTopics": [
+    {
+      "id": "st-1",
+      "name": "Concept of Electric Field",
+      "estimatedSlides": 3,
+      "estimatedDurationMinutes": 10,
+      "relation": "Prerequisite"
+    },
+    {
+      "id": "st-2",
+      "name": "Electric Field due to a Point Charge",
+      "estimatedSlides": 4,
+      "estimatedDurationMinutes": 12,
+      "relation": "Core Concept"
+    },
+    {
+      "id": "st-3",
+      "name": "Electric Field Lines and Their Properties",
+      "estimatedSlides": 5,
+      "estimatedDurationMinutes": 15,
+      "relation": "Core Concept"
+    },
+    {
+      "id": "st-4",
+      "name": "Superposition Principle for Electric Fields",
+      "estimatedSlides": 4,
+      "estimatedDurationMinutes": 13,
+      "relation": "Core Concept"
+    },
+    {
+      "id": "st-5",
+      "name": "Electric Field due to a Dipole",
+      "estimatedSlides": 3,
+      "estimatedDurationMinutes": 10,
+      "relation": "Important"
+    },
+    {
+      "id": "st-6",
+      "name": "Uniform vs Non-Uniform Fields",
+      "estimatedSlides": 2,
+      "estimatedDurationMinutes": 8,
+      "relation": "Important"
+    },
+    {
+      "id": "st-7",
+      "name": "Field Line Density and Field Strength",
+      "estimatedSlides": 1,
+      "estimatedDurationMinutes": 5,
+      "relation": "Prerequisite"
+    }
+  ]
+}

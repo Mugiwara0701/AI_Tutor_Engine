@@ -1,0 +1,66 @@
+{
+  "id": "prompt-1",
+  "type": "Master Prompt",
+  "topicName": "Electric Field and Field Lines",
+  "language": "English",
+  "model": "GPT-4o",
+  "status": "Active",
+  "createdOn": "2026-05-10T09:00:00Z",
+  "lastUpdated": "2026-07-01T16:40:00Z",
+  "updatedBy": { "name": "Aditi Rao", "role": "Content Lead" },
+  "currentVersion": "v1.3",
+  "masterPromptOptions": [
+    "Slide Generation Prompt",
+    "Narration Prompt",
+    "Quiz Generation Prompt"
+  ],
+  "languageOptions": ["English", "Hindi", "Marathi"],
+  "modelOptions": ["GPT-4o", "GPT-4 Turbo", "Claude 3.5 Sonnet"],
+  "variables": [
+    { "key": "{{class}}", "description": "Class (e.g., Class 12)" },
+    { "key": "{{subject}}", "description": "Subject (e.g., Physics)" },
+    { "key": "{{book}}", "description": "Book (e.g., NCERT)" },
+    { "key": "{{chapter_name}}", "description": "Chapter Name" },
+    { "key": "{{chapter_number}}", "description": "Chapter Number" },
+    { "key": "{{topic_name}}", "description": "Topic Name" },
+    { "key": "{{topic_number}}", "description": "Topic Number" },
+    { "key": "{{sub_topic_name}}", "description": "Sub Topic Name" },
+    { "key": "{{sub_topic_number}}", "description": "Sub Topic Number" },
+    { "key": "{{concepts}}", "description": "Key Concepts (Array)" },
+    { "key": "{{additional_notes}}", "description": "Additional Notes" }
+  ],
+  "versions": [
+    {
+      "version": "v1.3",
+      "isLatest": true,
+      "updatedOn": "2026-07-01T16:40:00Z",
+      "updatedBy": { "name": "Aditi Rao" },
+      "changes": "Added speaker notes requirement to output format",
+      "content": "### Instructions:\n1. Generate a set of {{concepts}} slides for {{topic_name}}.\n2. Use {{class}} level vocabulary suitable for {{subject}}.\n3. Reference {{book}}, {{chapter_name}} (Chapter {{chapter_number}}).\n\n### Context:\nTopic: {{topic_name}} (Topic {{topic_number}})\nSub Topic: {{sub_topic_name}} (Sub Topic {{sub_topic_number}})\nKey Concepts: {{concepts}}\nAdditional Notes: {{additional_notes}}\n\n### Output Format:\n1. Slide Title\n2. Bullet Points (3-5 per slide)\n3. Speaker Notes\n4. Suggested Visual"
+    },
+    {
+      "version": "v1.2",
+      "isLatest": false,
+      "updatedOn": "2026-06-18T11:05:00Z",
+      "updatedBy": { "name": "Rohan Mehta" },
+      "changes": "Clarified vocabulary level instruction",
+      "content": "### Instructions:\n1. Generate a set of {{concepts}} slides for {{topic_name}}.\n2. Use grade-appropriate vocabulary.\n\n### Context:\nTopic: {{topic_name}}\nKey Concepts: {{concepts}}"
+    },
+    {
+      "version": "v1.1",
+      "isLatest": false,
+      "updatedOn": "2026-06-05T14:20:00Z",
+      "updatedBy": { "name": "Aditi Rao" },
+      "changes": "Initial structured version with numbered instructions",
+      "content": "### Instructions:\n1. Generate slides for {{topic_name}}.\n\n### Context:\nTopic: {{topic_name}}"
+    },
+    {
+      "version": "v1.0",
+      "isLatest": false,
+      "updatedOn": "2026-05-10T09:00:00Z",
+      "updatedBy": { "name": "Rohan Mehta" },
+      "changes": "Initial draft",
+      "content": "Generate slides for the topic {{topic_name}}."
+    }
+  ]
+}

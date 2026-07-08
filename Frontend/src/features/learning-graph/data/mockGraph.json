@@ -1,0 +1,434 @@
+{
+  "filterOptions": {
+    "classes": ["Class 12", "Class 11"],
+    "subjects": ["Physics", "Chemistry", "Mathematics"],
+    "books": ["Physics Part I", "Physics Part II"],
+    "chapters": [
+      "Chapter 1: Electric Charges and Fields",
+      "Chapter 2: Electrostatic Potential"
+    ]
+  },
+  "nodes": [
+    {
+      "id": "root",
+      "type": "mainTopic",
+      "label": "Electric Field",
+      "description": "The central topic covering how charges create a region of influence in space.",
+      "totalConcepts": 20,
+      "learningTimeMinutes": 180,
+      "mastery": 68,
+      "position": {
+        "x": 750,
+        "y": 480
+      }
+    },
+    {
+      "id": "n1",
+      "type": "subTopic",
+      "label": "1. Concept of Electric Field",
+      "description": "Introduces electric field as a region of influence around a charge.",
+      "totalConcepts": 2,
+      "learningTimeMinutes": 20,
+      "mastery": 82,
+      "position": {
+        "x": 511,
+        "y": 298
+      }
+    },
+    {
+      "id": "n2",
+      "type": "subTopic",
+      "label": "2. Electric Field due to Point Charge",
+      "description": "Derives the field expression for a single point charge.",
+      "totalConcepts": 2,
+      "learningTimeMinutes": 18,
+      "mastery": 74,
+      "position": {
+        "x": 948,
+        "y": 290
+      }
+    },
+    {
+      "id": "n3",
+      "type": "subTopic",
+      "label": "3. Electric Field due to Dipole",
+      "description": "Covers field due to a pair of equal and opposite charges.",
+      "totalConcepts": 2,
+      "learningTimeMinutes": 22,
+      "mastery": 55,
+      "position": {
+        "x": 1138,
+        "y": 422
+      }
+    },
+    {
+      "id": "n4",
+      "type": "subTopic",
+      "label": "4. Superposition Principle",
+      "description": "Net field from multiple charges is the vector sum of individual fields.",
+      "totalConcepts": 4,
+      "learningTimeMinutes": 25,
+      "mastery": 63,
+      "position": {
+        "x": 634,
+        "y": 653
+      }
+    },
+    {
+      "id": "n5",
+      "type": "subTopic",
+      "label": "5. Electric Field Lines",
+      "description": "Rules and properties governing how field lines are drawn.",
+      "totalConcepts": 2,
+      "learningTimeMinutes": 15,
+      "mastery": 47,
+      "position": {
+        "x": 1014,
+        "y": 604
+      }
+    },
+    {
+      "id": "n8",
+      "type": "subTopic",
+      "label": "8. Electric Flux",
+      "description": "Measures the number of field lines passing through a surface.",
+      "totalConcepts": 2,
+      "learningTimeMinutes": 20,
+      "mastery": 38,
+      "position": {
+        "x": 412,
+        "y": 513
+      }
+    },
+    {
+      "id": "n1a",
+      "type": "concept",
+      "label": "Definition",
+      "description": "Formal definition of electric field intensity.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 6,
+      "mastery": 90,
+      "position": {
+        "x": 387,
+        "y": 142
+      }
+    },
+    {
+      "id": "n1b",
+      "type": "concept",
+      "label": "Test Charge",
+      "description": "A small positive charge used to probe an electric field.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 5,
+      "mastery": 78,
+      "position": {
+        "x": 593,
+        "y": 142
+      }
+    },
+    {
+      "id": "n2a",
+      "type": "concept",
+      "label": "Coulomb's Law",
+      "description": "Force between two point charges.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 8,
+      "mastery": 85,
+      "position": {
+        "x": 956,
+        "y": 163
+      }
+    },
+    {
+      "id": "n2b",
+      "type": "concept",
+      "label": "Inverse Square Law",
+      "description": "Field strength falls off with the square of distance.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 7,
+      "mastery": 60,
+      "position": {
+        "x": 1237,
+        "y": 180
+      }
+    },
+    {
+      "id": "n3a",
+      "type": "concept",
+      "label": "Electric Dipole Moment",
+      "description": "Product of charge magnitude and separation distance.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 9,
+      "mastery": 42,
+      "position": {
+        "x": 1377,
+        "y": 364
+      }
+    },
+    {
+      "id": "n3b",
+      "type": "concept",
+      "label": "Axial & Equatorial Line",
+      "description": "Field along the dipole axis vs. its perpendicular bisector.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 10,
+      "mastery": 33,
+      "position": {
+        "x": 1385,
+        "y": 472
+      }
+    },
+    {
+      "id": "n4a",
+      "type": "concept",
+      "label": "Multiple Charges",
+      "description": "Systems with more than two point charges.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 6,
+      "mastery": 71,
+      "position": {
+        "x": 263,
+        "y": 694
+      }
+    },
+    {
+      "id": "n4b",
+      "type": "concept",
+      "label": "Resultant Field",
+      "description": "Vector sum of individual fields at a point.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 7,
+      "mastery": 66,
+      "position": {
+        "x": 280,
+        "y": 790
+      }
+    },
+    {
+      "id": "n4c",
+      "type": "concept",
+      "label": "Multiple of Superposition",
+      "description": "Applying superposition across repeated charge units.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 6,
+      "mastery": 40,
+      "position": {
+        "x": 532,
+        "y": 818
+      }
+    },
+    {
+      "id": "n4d",
+      "type": "concept",
+      "label": "Examples",
+      "description": "Worked examples applying the superposition principle.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 8,
+      "mastery": 58,
+      "position": {
+        "x": 750,
+        "y": 810
+      }
+    },
+    {
+      "id": "n5a",
+      "type": "concept",
+      "label": "Field Line Properties",
+      "description": "Rules that field lines must always follow.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 7,
+      "mastery": 51,
+      "position": {
+        "x": 1270,
+        "y": 587
+      }
+    },
+    {
+      "id": "n5b",
+      "type": "concept",
+      "label": "Field Line Patterns",
+      "description": "Typical field line shapes for common charge configurations.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 8,
+      "mastery": 44,
+      "position": {
+        "x": 1270,
+        "y": 694
+      }
+    },
+    {
+      "id": "n8a",
+      "type": "concept",
+      "label": "Definition",
+      "description": "Formal definition of electric flux through a surface.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 6,
+      "mastery": 35,
+      "position": {
+        "x": 197,
+        "y": 485
+      }
+    },
+    {
+      "id": "n8b",
+      "type": "concept",
+      "label": "Gauss's Law",
+      "description": "Relates electric flux through a closed surface to enclosed charge.",
+      "totalConcepts": 1,
+      "learningTimeMinutes": 12,
+      "mastery": 30,
+      "position": {
+        "x": 197,
+        "y": 579
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-root-n1",
+      "source": "root",
+      "target": "n1",
+      "relation": "strong"
+    },
+    {
+      "id": "e-root-n2",
+      "source": "root",
+      "target": "n2",
+      "relation": "strong"
+    },
+    {
+      "id": "e-root-n3",
+      "source": "root",
+      "target": "n3",
+      "relation": "strong"
+    },
+    {
+      "id": "e-root-n4",
+      "source": "root",
+      "target": "n4",
+      "relation": "strong"
+    },
+    {
+      "id": "e-root-n5",
+      "source": "root",
+      "target": "n5",
+      "relation": "strong"
+    },
+    {
+      "id": "e-root-n8",
+      "source": "root",
+      "target": "n8",
+      "relation": "strong"
+    },
+    {
+      "id": "e-n1-n1a",
+      "source": "n1",
+      "target": "n1a",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n1-n1b",
+      "source": "n1",
+      "target": "n1b",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n2-n2a",
+      "source": "n2",
+      "target": "n2a",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n2-n2b",
+      "source": "n2",
+      "target": "n2b",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n3-n3a",
+      "source": "n3",
+      "target": "n3a",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n3-n3b",
+      "source": "n3",
+      "target": "n3b",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n4-n4a",
+      "source": "n4",
+      "target": "n4a",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n4-n4b",
+      "source": "n4",
+      "target": "n4b",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n4-n4c",
+      "source": "n4",
+      "target": "n4c",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n4-n4d",
+      "source": "n4",
+      "target": "n4d",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n5-n5a",
+      "source": "n5",
+      "target": "n5a",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n5-n5b",
+      "source": "n5",
+      "target": "n5b",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n8-n8a",
+      "source": "n8",
+      "target": "n8a",
+      "relation": "prerequisite"
+    },
+    {
+      "id": "e-n8-n8b",
+      "source": "n8",
+      "target": "n8b",
+      "relation": "prerequisite"
+    }
+  ],
+  "learningPath": [
+    {
+      "id": "n1",
+      "label": "1. Concept of Electric Field"
+    },
+    {
+      "id": "n2",
+      "label": "2. Electric Field due to Point Charge"
+    },
+    {
+      "id": "n4",
+      "label": "4. Superposition Principle"
+    },
+    {
+      "id": "n5",
+      "label": "5. Electric Field Lines"
+    },
+    {
+      "id": "n3",
+      "label": "3. Electric Field due to Dipole"
+    },
+    {
+      "id": "n8",
+      "label": "8. Electric Flux"
+    }
+  ]
+}

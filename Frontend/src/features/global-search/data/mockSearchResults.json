@@ -1,0 +1,111 @@
+{
+  "recentSearches": [
+    { "id": "rs1", "query": "coulomb's law", "date": "2026-07-08T07:30:00Z" },
+    {
+      "id": "rs2",
+      "query": "electromagnetic induction",
+      "date": "2026-07-07T15:10:00Z"
+    },
+    {
+      "id": "rs3",
+      "query": "master prompt v1.3",
+      "date": "2026-07-06T11:45:00Z"
+    }
+  ],
+  "filterOptions": {
+    "class": ["Class 12", "Class 11"],
+    "subject": ["Physics", "Chemistry"],
+    "book": ["Physics Part I", "Physics Part II", "Chemistry Part I"],
+    "contentType": ["Chapter", "Topic", "Prompt", "ZIP File"],
+    "status": ["Complete", "In Progress", "Not Started"]
+  },
+  "results": {
+    "chapters": [
+      {
+        "id": "ch1",
+        "name": "Chapter 1: Electric Charges and Fields",
+        "breadcrumb": "Class 12 › Physics › Physics Part I",
+        "status": "Complete",
+        "date": "2026-07-07T08:00:00Z"
+      },
+      {
+        "id": "ch2",
+        "name": "Chapter 2: Electrostatic Potential and Capacitance",
+        "breadcrumb": "Class 12 › Physics › Physics Part I",
+        "status": "In Progress",
+        "date": "2026-06-30T09:00:00Z"
+      }
+    ],
+    "topics": [
+      {
+        "id": "t1",
+        "name": "Coulomb's Law",
+        "breadcrumb": "Class 12 › Physics › Chapter 1",
+        "status": "Complete",
+        "date": "2026-07-06T10:20:00Z"
+      },
+      {
+        "id": "t2",
+        "name": "Electric Field Lines",
+        "breadcrumb": "Class 12 › Physics › Chapter 1",
+        "status": "Complete",
+        "date": "2026-07-05T14:00:00Z"
+      },
+      {
+        "id": "t3",
+        "name": "Gauss's Law",
+        "breadcrumb": "Class 12 › Physics › Chapter 1",
+        "status": "In Progress",
+        "date": "2026-07-04T09:30:00Z"
+      }
+    ],
+    "resources": [
+      {
+        "id": "r1",
+        "name": "Field_Line_Diagram.png",
+        "breadcrumb": "Class 12 › Physics › Chapter 1 › Assets",
+        "status": null,
+        "date": "2026-07-03T11:15:00Z"
+      },
+      {
+        "id": "r2",
+        "name": "Concept_Tracker.xlsx",
+        "breadcrumb": "Class 12 › Physics › Chapter 1 › Assets",
+        "status": null,
+        "date": "2026-07-05T09:30:00Z"
+      }
+    ],
+    "prompts": [
+      {
+        "id": "p1",
+        "name": "Master Prompt v1.3 — Chapter 1",
+        "breadcrumb": "Class 12 › Physics › Chapter 1 › Prompt Studio",
+        "status": "Active",
+        "date": "2026-07-06T09:00:00Z"
+      },
+      {
+        "id": "p2",
+        "name": "Master Prompt v1.0 — Chapter 2",
+        "breadcrumb": "Class 12 › Physics › Chapter 2 › Prompt Studio",
+        "status": "Active",
+        "date": "2026-06-29T10:00:00Z"
+      }
+    ],
+    "files": [
+      {
+        "id": "f1",
+        "name": "Content_Package_v2.zip",
+        "breadcrumb": "Class 12 › Physics › Chapter 1 › ZIP Manager",
+        "status": "Active",
+        "date": "2026-07-07T08:00:00Z"
+      },
+      {
+        "id": "f2",
+        "name": "Slides_Chapter1_Final.pptx",
+        "breadcrumb": "Class 12 › Physics › Chapter 1 › Storage",
+        "status": null,
+        "date": "2026-07-07T14:05:00Z"
+      }
+    ]
+  }
+}

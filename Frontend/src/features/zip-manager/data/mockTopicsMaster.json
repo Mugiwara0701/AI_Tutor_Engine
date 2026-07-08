@@ -1,0 +1,27 @@
+{
+  "topicsByChapter": {
+    "Chapter 1: Electric Charges and Fields": [
+      "Electric Charge",
+      "Coulomb's Law",
+      "Electric Field",
+      "Electric Field Lines",
+      "Electric Dipole",
+      "Gauss's Law"
+    ],
+    "Chapter 2: Electrostatic Potential": [
+      "Electric Potential",
+      "Potential Energy",
+      "Equipotential Surfaces",
+      "Electric Potential Due to a Dipole",
+      "Capacitance and Capacitors"
+    ],
+    "Chapter 3: Current Electricity": [
+      "Electric Current",
+      "Ohm's Law",
+      "Resistivity and Conductivity",
+      "Combination of Resistors",
+      "Kirchhoff's Rules",
+      "Wheatstone Bridge"
+    ]
+  }
+}

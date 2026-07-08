@@ -1,0 +1,148 @@
+{
+  "tree": {
+    "id": "root",
+    "name": "All Content",
+    "type": "root",
+    "children": [
+      {
+        "id": "class-12",
+        "name": "Class 12",
+        "type": "class",
+        "children": [
+          {
+            "id": "physics",
+            "name": "Physics",
+            "type": "subject",
+            "children": [
+              {
+                "id": "physics-part-1",
+                "name": "Physics Part I",
+                "type": "book",
+                "children": [
+                  {
+                    "id": "chapter-1",
+                    "name": "Chapter 1: Electric Charges and Fields",
+                    "type": "chapter",
+                    "children": [
+                      {
+                        "id": "topic-1-1",
+                        "name": "Electric Charge",
+                        "type": "topic"
+                      },
+                      {
+                        "id": "topic-1-2",
+                        "name": "Coulomb's Law",
+                        "type": "topic"
+                      },
+                      {
+                        "id": "topic-1-3",
+                        "name": "Electric Field",
+                        "type": "topic"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "chapter-2",
+                    "name": "Chapter 2: Electrostatic Potential",
+                    "type": "chapter",
+                    "children": [
+                      {
+                        "id": "topic-2-1",
+                        "name": "Potential Energy",
+                        "type": "topic"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "chemistry",
+            "name": "Chemistry",
+            "type": "subject",
+            "children": [
+              {
+                "id": "chemistry-part-1",
+                "name": "Chemistry Part I",
+                "type": "book",
+                "children": [
+                  {
+                    "id": "chapter-3",
+                    "name": "Chapter 1: Solid State",
+                    "type": "chapter",
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "class-11",
+        "name": "Class 11",
+        "type": "class",
+        "children": []
+      }
+    ]
+  },
+  "storage": {
+    "usedGB": 42.8,
+    "totalGB": 100
+  },
+  "activeChapterId": "chapter-1",
+  "stats": {
+    "chapters": 3,
+    "mainTopics": 15,
+    "subTopics": 41,
+    "concepts": 147,
+    "figures": 52,
+    "tables": 21
+  },
+  "filterOptions": {
+    "class": ["Class 12", "Class 11", "Class 10"],
+    "subject": ["Physics", "Chemistry", "Mathematics", "Biology"],
+    "book": ["Physics Part I", "Physics Part II", "Chemistry Part I"],
+    "status": ["Complete", "In Progress", "Not Started"],
+    "updated": ["Today", "This Week", "This Month", "Older"]
+  },
+  "chapters": [
+    {
+      "id": "chapter-1",
+      "name": "Electric Charges and Fields",
+      "breadcrumb": "Class 12 > Physics > Physics Part I",
+      "mainTopics": 6,
+      "subTopics": 18,
+      "concepts": 64,
+      "status": "Complete",
+      "updatedAt": "2026-07-05T10:00:00Z",
+      "thumbnail": "https://images.unsplash.com/photo-1636466497217-26a8cbeaf0aa?w=400&h=300&fit=crop",
+      "description": "Covers electric charge, Coulomb's law, electric field, and Gauss's law with applications."
+    },
+    {
+      "id": "chapter-2",
+      "name": "Electrostatic Potential and Capacitance",
+      "breadcrumb": "Class 12 > Physics > Physics Part I",
+      "mainTopics": 5,
+      "subTopics": 14,
+      "concepts": 52,
+      "status": "In Progress",
+      "updatedAt": "2026-07-07T02:00:00Z",
+      "thumbnail": "https://images.unsplash.com/photo-1636466497217-26a8cbeaf0aa?w=400&h=300&fit=crop",
+      "description": "Introduces electrostatic potential, potential energy, and capacitors."
+    },
+    {
+      "id": "chapter-3",
+      "name": "Solid State",
+      "breadcrumb": "Class 12 > Chemistry > Chemistry Part I",
+      "mainTopics": 4,
+      "subTopics": 9,
+      "concepts": 31,
+      "status": "Not Started",
+      "updatedAt": "2026-06-14T10:00:00Z",
+      "thumbnail": "https://images.unsplash.com/photo-1554475901-4538ddfbccc2?w=400&h=300&fit=crop",
+      "description": "Classification of solids, unit cells, packing efficiency, and defects."
+    }
+  ]
+}

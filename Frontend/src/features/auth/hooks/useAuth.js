@@ -1,0 +1,13 @@
+// src/features/auth/hooks/useAuth.js
+// Placeholder for useAuth — implement component/logic here.
+
+import { useContext } from "react";
+import { AuthContext } from "../../../context/AuthContext.jsx";
+
+export function useAuth() {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return ctx;
+}

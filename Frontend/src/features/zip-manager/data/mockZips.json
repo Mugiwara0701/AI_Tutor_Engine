@@ -1,0 +1,184 @@
+{
+  "storage": { "usedGB": 42.8, "totalGB": 100 },
+  "filterOptions": {
+    "classOptions": ["Class 12", "Class 11", "Class 10"],
+    "subjectOptions": ["Physics", "Chemistry", "Mathematics"],
+    "chapterOptions": [
+      "Chapter 1: Electric Charges and Fields",
+      "Chapter 2: Electrostatic Potential",
+      "Chapter 3: Current Electricity"
+    ],
+    "statusOptions": ["Active", "Inactive"]
+  },
+  "zips": [
+    {
+      "id": "zip-1",
+      "name": "chapter-1-electric-charges.zip",
+      "description": "Slides, narration audio, and quiz assets for Chapter 1",
+      "class": "Class 12",
+      "subject": "Physics",
+      "chapterTopic": "Chapter 1: Electric Charges and Fields",
+      "sizeBytes": 184320000,
+      "filesCount": 42,
+      "foldersCount": 6,
+      "compression": "ZIP (Deflate)",
+      "checksum": "a1f3c9e0b7d2",
+      "status": "Active",
+      "createdOn": "2026-06-20T09:00:00Z",
+      "updatedOn": "2026-07-02T10:15:00Z",
+      "updatedBy": { "name": "Aditi Rao" },
+      "contents": [
+        { "folder": "slides", "filesCount": 22 },
+        { "folder": "narration", "filesCount": 8 },
+        { "folder": "quiz", "filesCount": 6 },
+        { "folder": "flashcards", "filesCount": 4 },
+        { "folder": "mind-map", "filesCount": 2 }
+      ],
+      "activity": [
+        {
+          "action": "uploaded this ZIP package",
+          "user": { "name": "Aditi Rao" },
+          "timestamp": "2026-07-02T10:15:00Z"
+        },
+        {
+          "action": "validated package structure",
+          "user": { "name": "System" },
+          "timestamp": "2026-07-02T10:16:00Z"
+        },
+        {
+          "action": "marked package Active",
+          "user": { "name": "Rohan Mehta" },
+          "timestamp": "2026-07-02T11:02:00Z"
+        }
+      ]
+    },
+    {
+      "id": "zip-2",
+      "name": "chapter-2-electrostatic-potential.zip",
+      "description": "Slides and narration for Electrostatic Potential",
+      "class": "Class 12",
+      "subject": "Physics",
+      "chapterTopic": "Chapter 2: Electrostatic Potential",
+      "sizeBytes": 132400000,
+      "filesCount": 31,
+      "foldersCount": 5,
+      "compression": "ZIP (Deflate)",
+      "checksum": "9b2d4f7a11c8",
+      "status": "Active",
+      "createdOn": "2026-06-18T08:30:00Z",
+      "updatedOn": "2026-06-29T14:40:00Z",
+      "updatedBy": { "name": "Rohan Mehta" },
+      "contents": [
+        { "folder": "slides", "filesCount": 18 },
+        { "folder": "narration", "filesCount": 7 },
+        { "folder": "quiz", "filesCount": 4 },
+        { "folder": "flashcards", "filesCount": 2 }
+      ],
+      "activity": [
+        {
+          "action": "uploaded this ZIP package",
+          "user": { "name": "Rohan Mehta" },
+          "timestamp": "2026-06-29T14:40:00Z"
+        },
+        {
+          "action": "validated package structure",
+          "user": { "name": "System" },
+          "timestamp": "2026-06-29T14:41:00Z"
+        }
+      ]
+    },
+    {
+      "id": "zip-3",
+      "name": "chapter-3-current-electricity.zip",
+      "description": "Draft package pending review before publishing",
+      "class": "Class 12",
+      "subject": "Physics",
+      "chapterTopic": "Chapter 3: Current Electricity",
+      "sizeBytes": 98200000,
+      "filesCount": 24,
+      "foldersCount": 4,
+      "compression": "ZIP (Deflate)",
+      "checksum": "3e7c1a90fd45",
+      "status": "Inactive",
+      "createdOn": "2026-07-01T12:00:00Z",
+      "updatedOn": "2026-07-05T09:20:00Z",
+      "updatedBy": { "name": "Aditi Rao" },
+      "contents": [
+        { "folder": "slides", "filesCount": 14 },
+        { "folder": "narration", "filesCount": 6 },
+        { "folder": "quiz", "filesCount": 4 }
+      ],
+      "activity": [
+        {
+          "action": "uploaded this ZIP package",
+          "user": { "name": "Aditi Rao" },
+          "timestamp": "2026-07-05T09:20:00Z"
+        }
+      ]
+    },
+    {
+      "id": "zip-4",
+      "name": "chemical-bonding-full-package.zip",
+      "description": "Full generated package for Chemical Bonding chapter",
+      "class": "Class 11",
+      "subject": "Chemistry",
+      "chapterTopic": "Chapter 4: Chemical Bonding",
+      "sizeBytes": 205600000,
+      "filesCount": 55,
+      "foldersCount": 7,
+      "compression": "ZIP (Deflate)",
+      "checksum": "6f0e2b8c93aa",
+      "status": "Active",
+      "createdOn": "2026-06-10T10:00:00Z",
+      "updatedOn": "2026-06-25T16:10:00Z",
+      "updatedBy": { "name": "Neha Iyer" },
+      "contents": [
+        { "folder": "slides", "filesCount": 28 },
+        { "folder": "narration", "filesCount": 10 },
+        { "folder": "quiz", "filesCount": 8 },
+        { "folder": "flashcards", "filesCount": 6 },
+        { "folder": "mind-map", "filesCount": 3 }
+      ],
+      "activity": [
+        {
+          "action": "uploaded this ZIP package",
+          "user": { "name": "Neha Iyer" },
+          "timestamp": "2026-06-25T16:10:00Z"
+        },
+        {
+          "action": "marked package Active",
+          "user": { "name": "Neha Iyer" },
+          "timestamp": "2026-06-25T16:30:00Z"
+        }
+      ]
+    },
+    {
+      "id": "zip-5",
+      "name": "quadratic-equations-assets.zip",
+      "description": "Quiz and flashcard assets for Quadratic Equations",
+      "class": "Class 10",
+      "subject": "Mathematics",
+      "chapterTopic": "Chapter 2: Electrostatic Potential",
+      "sizeBytes": 51200000,
+      "filesCount": 16,
+      "foldersCount": 3,
+      "compression": "ZIP (Deflate)",
+      "checksum": "d84a5e12b0f9",
+      "status": "Inactive",
+      "createdOn": "2026-05-28T11:15:00Z",
+      "updatedOn": "2026-06-02T13:05:00Z",
+      "updatedBy": { "name": "Rohan Mehta" },
+      "contents": [
+        { "folder": "quiz", "filesCount": 10 },
+        { "folder": "flashcards", "filesCount": 6 }
+      ],
+      "activity": [
+        {
+          "action": "uploaded this ZIP package",
+          "user": { "name": "Rohan Mehta" },
+          "timestamp": "2026-06-02T13:05:00Z"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,180 @@
+{
+  "tree": {
+    "id": "root",
+    "name": "Root Directory",
+    "type": "root",
+    "children": [
+      {
+        "id": "class-12",
+        "name": "Class 12",
+        "type": "class",
+        "children": [
+          {
+            "id": "physics",
+            "name": "Physics",
+            "type": "subject",
+            "children": [
+              {
+                "id": "physics-part-1",
+                "name": "Physics Part I",
+                "type": "book",
+                "children": [
+                  {
+                    "id": "chapter-1",
+                    "name": "Chapter 1: Electric Charges and Fields",
+                    "type": "chapter"
+                  },
+                  {
+                    "id": "chapter-2",
+                    "name": "Chapter 2: Electrostatic Potential",
+                    "type": "chapter"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "chemistry",
+            "name": "Chemistry",
+            "type": "subject",
+            "children": [
+              {
+                "id": "chemistry-part-1",
+                "name": "Chemistry Part I",
+                "type": "book",
+                "children": [
+                  {
+                    "id": "chapter-3",
+                    "name": "Chapter 1: The Solid State",
+                    "type": "chapter"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "storage": { "usedGB": 148.6, "totalGB": 250 },
+  "activeFolderId": "chapter-1",
+  "breadcrumbsByFolder": {
+    "chapter-1": [
+      "Root Directory",
+      "Class 12",
+      "Physics",
+      "Physics Part I",
+      "Chapter 1: Electric Charges and Fields"
+    ],
+    "chapter-2": [
+      "Root Directory",
+      "Class 12",
+      "Physics",
+      "Physics Part I",
+      "Chapter 2: Electrostatic Potential"
+    ],
+    "chapter-3": [
+      "Root Directory",
+      "Class 12",
+      "Chemistry",
+      "Chemistry Part I",
+      "Chapter 1: The Solid State"
+    ]
+  },
+  "filesByFolder": {
+    "chapter-1": [
+      {
+        "id": "f1",
+        "name": "Master_Prompt_v1.3.pdf",
+        "type": "pdf",
+        "sizeBytes": 2415919,
+        "modified": "2026-07-06T10:20:00Z",
+        "modifiedBy": "Aditi Sharma"
+      },
+      {
+        "id": "f2",
+        "name": "Slides_Chapter1_Final.pptx",
+        "type": "pptx",
+        "sizeBytes": 18874368,
+        "modified": "2026-07-07T14:05:00Z",
+        "modifiedBy": "Rohan Mehta"
+      },
+      {
+        "id": "f3",
+        "name": "Concept_Tracker.xlsx",
+        "type": "xlsx",
+        "sizeBytes": 512000,
+        "modified": "2026-07-05T09:30:00Z",
+        "modifiedBy": "Aditi Sharma"
+      },
+      {
+        "id": "f4",
+        "name": "Lesson_Notes_Draft.docx",
+        "type": "docx",
+        "sizeBytes": 87040,
+        "modified": "2026-07-04T16:45:00Z",
+        "modifiedBy": "Priya Iyer"
+      },
+      {
+        "id": "f5",
+        "name": "Narration_Coulombs_Law.mp4",
+        "type": "mp4",
+        "sizeBytes": 104857600,
+        "modified": "2026-07-06T18:12:00Z",
+        "modifiedBy": "Rohan Mehta"
+      },
+      {
+        "id": "f6",
+        "name": "Content_Package_v2.zip",
+        "type": "zip",
+        "sizeBytes": 47185920,
+        "modified": "2026-07-07T08:00:00Z",
+        "modifiedBy": "System"
+      },
+      {
+        "id": "f7",
+        "name": "Field_Line_Diagram.png",
+        "type": "png",
+        "sizeBytes": 245760,
+        "modified": "2026-07-03T11:15:00Z",
+        "modifiedBy": "Priya Iyer"
+      },
+      {
+        "id": "f8",
+        "name": "Quiz_Bank_Ch1.pdf",
+        "type": "pdf",
+        "sizeBytes": 972800,
+        "modified": "2026-07-02T13:40:00Z",
+        "modifiedBy": "Aditi Sharma"
+      }
+    ],
+    "chapter-2": [
+      {
+        "id": "f9",
+        "name": "Master_Prompt_v1.0.pdf",
+        "type": "pdf",
+        "sizeBytes": 1887436,
+        "modified": "2026-06-29T10:00:00Z",
+        "modifiedBy": "Rohan Mehta"
+      },
+      {
+        "id": "f10",
+        "name": "Slides_Chapter2_Draft.pptx",
+        "type": "pptx",
+        "sizeBytes": 15728640,
+        "modified": "2026-06-30T15:20:00Z",
+        "modifiedBy": "Priya Iyer"
+      }
+    ],
+    "chapter-3": [
+      {
+        "id": "f11",
+        "name": "Solid_State_Notes.docx",
+        "type": "docx",
+        "sizeBytes": 65536,
+        "modified": "2026-06-25T09:00:00Z",
+        "modifiedBy": "Aditi Sharma"
+      }
+    ]
+  }
+}

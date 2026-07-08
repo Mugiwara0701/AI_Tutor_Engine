@@ -1,0 +1,160 @@
+{
+  "dateRangeOptions": ["This Month", "Last Month", "This Quarter", "This Year"],
+  "metrics": [
+    {
+      "key": "avgGenTime",
+      "label": "Avg. Generation Time",
+      "value": "4m 12s",
+      "changePercent": -8.4
+    },
+    {
+      "key": "avgPromptLength",
+      "label": "Avg. Prompt Length",
+      "value": "1,842 tokens",
+      "changePercent": 3.1
+    },
+    {
+      "key": "avgSlides",
+      "label": "Avg. Slides per Topic",
+      "value": "18.6",
+      "changePercent": 5.2
+    },
+    {
+      "key": "extractionSuccess",
+      "label": "Extraction Success Rate",
+      "value": "97.8%",
+      "changePercent": 1.2
+    }
+  ],
+  "executionSuccess": {
+    "successPercent": 96.8,
+    "failedPercent": 3.2,
+    "totalExecutions": 1284
+  },
+  "complexChapters": [
+    { "name": "Ch 1: Electric Charges & Fields", "complexity": 88 },
+    { "name": "Ch 4: Moving Charges & Magnetism", "complexity": 82 },
+    { "name": "Ch 8: Electromagnetic Waves", "complexity": 76 },
+    { "name": "Ch 2: Electrostatic Potential", "complexity": 71 },
+    { "name": "Ch 6: Electromagnetic Induction", "complexity": 65 }
+  ],
+  "zipUploadTrends": [
+    { "date": "Jul 1", "uploads": 12 },
+    { "date": "Jul 2", "uploads": 18 },
+    { "date": "Jul 3", "uploads": 15 },
+    { "date": "Jul 4", "uploads": 22 },
+    { "date": "Jul 5", "uploads": 19 },
+    { "date": "Jul 6", "uploads": 27 },
+    { "date": "Jul 7", "uploads": 24 },
+    { "date": "Jul 8", "uploads": 31 }
+  ],
+  "promptVersions": {
+    "totalVersions": 214,
+    "weeks": [
+      { "week": "Wk 1", "versions": 38 },
+      { "week": "Wk 2", "versions": 45 },
+      { "week": "Wk 3", "versions": 52 },
+      { "week": "Wk 4", "versions": 41 },
+      { "week": "Wk 5", "versions": 38 }
+    ]
+  },
+  "gpuUtilization": {
+    "currentPercent": 88,
+    "changePercent": 4.6,
+    "series": [
+      { "time": "06:00", "value": 42 },
+      { "time": "08:00", "value": 58 },
+      { "time": "10:00", "value": 71 },
+      { "time": "12:00", "value": 65 },
+      { "time": "14:00", "value": 79 },
+      { "time": "16:00", "value": 84 },
+      { "time": "18:00", "value": 88 }
+    ]
+  },
+  "storageUsage": { "usedGB": 148.6, "totalGB": 250 },
+  "topTopics": [
+    {
+      "rank": 1,
+      "topic": "Coulomb's Law",
+      "generations": 214,
+      "successRate": 98.6,
+      "avgTime": "3m 42s",
+      "avgSlides": 16,
+      "trend": [10, 14, 12, 18, 16, 22, 20, 25]
+    },
+    {
+      "rank": 2,
+      "topic": "Electric Field Lines",
+      "generations": 198,
+      "successRate": 97.1,
+      "avgTime": "4m 05s",
+      "avgSlides": 19,
+      "trend": [8, 10, 9, 13, 15, 14, 18, 17]
+    },
+    {
+      "rank": 3,
+      "topic": "Gauss's Law",
+      "generations": 176,
+      "successRate": 96.4,
+      "avgTime": "5m 18s",
+      "avgSlides": 22,
+      "trend": [12, 11, 15, 14, 17, 16, 19, 21]
+    },
+    {
+      "rank": 4,
+      "topic": "Electrostatic Potential Energy",
+      "generations": 154,
+      "successRate": 95.8,
+      "avgTime": "4m 50s",
+      "avgSlides": 18,
+      "trend": [6, 9, 8, 12, 10, 14, 13, 16]
+    },
+    {
+      "rank": 5,
+      "topic": "Capacitors and Capacitance",
+      "generations": 142,
+      "successRate": 94.9,
+      "avgTime": "6m 02s",
+      "avgSlides": 24,
+      "trend": [9, 8, 11, 10, 13, 12, 15, 14]
+    }
+  ],
+  "recentActivity": [
+    {
+      "id": 1,
+      "action": "Generated slides for \"Coulomb's Law\"",
+      "timestamp": "2026-07-08T08:40:00Z",
+      "color": "green"
+    },
+    {
+      "id": 2,
+      "action": "Uploaded ZIP package for Chapter 2",
+      "timestamp": "2026-07-08T07:55:00Z",
+      "color": "primary"
+    },
+    {
+      "id": 3,
+      "action": "Prompt v1.3 published for Chapter 1",
+      "timestamp": "2026-07-08T07:10:00Z",
+      "color": "purple"
+    },
+    {
+      "id": 4,
+      "action": "Validation failed for \"Capacitors\" quiz set",
+      "timestamp": "2026-07-07T22:30:00Z",
+      "color": "red"
+    },
+    {
+      "id": 5,
+      "action": "Storage usage crossed 55% threshold",
+      "timestamp": "2026-07-07T18:05:00Z",
+      "color": "orange"
+    },
+    {
+      "id": 6,
+      "action": "Learning graph updated for Chapter 4",
+      "timestamp": "2026-07-07T14:20:00Z",
+      "color": "green"
+    }
+  ]
+}
