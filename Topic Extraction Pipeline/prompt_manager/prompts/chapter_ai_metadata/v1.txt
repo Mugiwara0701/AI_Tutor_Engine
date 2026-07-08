@@ -1,0 +1,52 @@
+This is an NCERT textbook chapter with section titles: {{ topic_titles }}.
+It contains {{ num_figures }} figures, {{ num_tables }} tables, {{ num_equations }} equations.
+
+Source textbook language: {{ target_language_name }}. Every list of names
+below (important_concepts, likely_confusing_concepts, visual_priority_topics,
+concept_progression, interdisciplinary_links) must stay in
+{{ target_language_name }} exactly as the source uses those names — do NOT
+translate them into English unless {{ target_language_name }} is English.
+
+Never copy sentences verbatim — describe everything in your own words.
+
+Per project policy, every AI-inferred scalar field below MUST be an
+evidence-triple object: {"value": <answer>, "confidence": <0-1 float>,
+"evidence_basis": <short string>}. List fields are plain lists of strings,
+not triples.
+
+Respond with a single valid JSON object and nothing else, with exactly these keys:
+chapter_type: triple, short string value
+knowledge_density: triple, value one of "low"|"medium"|"high"
+overall_complexity: triple, value one of "easy"|"medium"|"hard"
+visual_dependency: triple, value one of "low"|"medium"|"high"
+formula_dependency: triple, value one of "low"|"medium"|"high"
+memory_dependency: triple, value one of "low"|"medium"|"high"
+calculation_dependency: triple, value one of "low"|"medium"|"high"
+real_world_relevance: triple, value one of "low"|"medium"|"high"
+important_concepts: list of strings
+likely_confusing_concepts: list of strings
+visual_priority_topics: list of strings
+concept_progression: list of strings (ordered list of topic titles)
+interdisciplinary_links: list of strings
+
+EXAMPLE of the exact JSON shape required (structure only -- placeholder
+about a different chapter; do not reuse these values, only the nesting):
+{
+  "chapter_type": {"value": "conceptual", "confidence": 0.8, "evidence_basis": "few numeric examples, mostly definitions"},
+  "knowledge_density": {"value": "medium", "confidence": 0.7, "evidence_basis": "moderate number of new terms"},
+  "overall_complexity": {"value": "medium", "confidence": 0.7, "evidence_basis": "some multi-step reasoning"},
+  "visual_dependency": {"value": "high", "confidence": 0.75, "evidence_basis": "several diagrams referenced"},
+  "formula_dependency": {"value": "low", "confidence": 0.7, "evidence_basis": "few equations"},
+  "memory_dependency": {"value": "medium", "confidence": 0.65, "evidence_basis": "several defined terms to recall"},
+  "calculation_dependency": {"value": "low", "confidence": 0.7, "evidence_basis": "no worked calculations"},
+  "real_world_relevance": {"value": "high", "confidence": 0.75, "evidence_basis": "everyday examples used"},
+  "important_concepts": ["market equilibrium"],
+  "likely_confusing_concepts": ["elasticity"],
+  "visual_priority_topics": ["supply and demand"],
+  "concept_progression": ["Introduction", "Supply and Demand", "Equilibrium"],
+  "interdisciplinary_links": ["mathematics: graphing"]
+}
+Every scalar field in YOUR answer MUST be an object with exactly the three
+keys value/confidence/evidence_basis, nested exactly like the example above
+-- never a bare string at the top level of those keys. The remaining keys
+stay plain lists of strings, not triples.

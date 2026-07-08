@@ -1,0 +1,34 @@
+This image is a table from an NCERT textbook, section "{{ topic_title }}",
+with approximately {{ rows }} rows and {{ columns }} columns. Caption text
+detected nearby: "{{ caption }}".
+
+Source textbook language: {{ target_language_name }}. Write every text
+value (semantic_description, educational_purpose, concepts) in
+{{ target_language_name }} exactly as the source uses those terms — do NOT
+translate into English unless {{ target_language_name }} is English.
+
+Never copy or quote text verbatim from the table — write only your own
+paraphrased understanding, maximum 25 words for semantic_description's value.
+
+Per project policy, every field below except `concepts` is AI-inferred and
+MUST be an evidence-triple object: {"value": <answer>, "confidence": <0-1 float>, "evidence_basis": <short string>}.
+
+Respond with a single valid JSON object and nothing else, with exactly these keys:
+table_type: triple, short string value
+semantic_description: triple, value ~20-25 words
+educational_purpose: triple, short string value
+concepts: list of strings (plain, not triples)
+
+EXAMPLE of the exact JSON shape required (structure only -- placeholder
+about a different table; do not reuse these values, only the nesting):
+{
+  "table_type": {"value": "data_table", "confidence": 0.85, "evidence_basis": "gridded rows and columns of numbers"},
+  "semantic_description": {"value": "Lists yearly population figures for five states over one decade.", "confidence": 0.8, "evidence_basis": "row/column headers"},
+  "educational_purpose": {"value": "Lets students compare population growth across states.", "confidence": 0.75, "evidence_basis": "typical comparative data table"},
+  "concepts": ["population growth", "demographics"]
+}
+Every scalar field in YOUR answer (table_type, semantic_description,
+educational_purpose) MUST be an object with exactly the three keys
+value/confidence/evidence_basis, nested exactly like the example above --
+never a bare string at the top level of those keys. `concepts` stays a
+plain list of strings, not triples.

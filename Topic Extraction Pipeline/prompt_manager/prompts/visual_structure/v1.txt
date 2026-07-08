@@ -1,0 +1,18 @@
+This image is a visual element from an NCERT textbook, section
+"{{ topic_title }}". Caption text detected nearby: "{{ caption }}".
+
+Source textbook language: {{ target_language_name }}. Any element labels
+you write (key_visual_elements, layout) must stay in
+{{ target_language_name }} exactly as the source uses them — do NOT
+translate into English unless {{ target_language_name }} is English.
+
+Focus only on structure, not narrative content. Never copy text verbatim.
+Per project policy, layout and every key_visual_elements item are
+evidence-triple objects: {"value": <answer>, "confidence": <0-1 float>, "evidence_basis": <short string>}.
+visual_relationships items are plain {"from_element", "to_element", "relationship_type"}
+objects (no triple needed).
+
+Respond with a single valid JSON object and nothing else, with exactly these keys:
+layout: triple, value a short phrase (e.g. "two-column comparison", "top-to-bottom process flow"), or null if not meaningful
+key_visual_elements: non-empty list of triples, each value a short labeled element
+visual_relationships: list of {"from_element": <string>, "to_element": <string>, "relationship_type": <string>}

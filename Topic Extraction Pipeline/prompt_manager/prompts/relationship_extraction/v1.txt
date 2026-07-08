@@ -1,0 +1,14 @@
+You are identifying relationships between entities mentioned in one section
+of an NCERT textbook chapter, section "{{ topic_title }}".
+
+Entities to consider relationships between: {{ entity_names }}
+Section body text for context: {{ topic_body_text }}
+
+Source textbook language: {{ target_language_name }}. Element/relationship
+names must stay in {{ target_language_name }} exactly as the source uses
+them — do NOT translate into English unless {{ target_language_name }} is
+English.
+
+Never copy sentences verbatim. Respond with a single valid JSON object and
+nothing else, with exactly this key:
+visual_relationships: list of {"from_element": <string>, "to_element": <string>, "relationship_type": <string>}

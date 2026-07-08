@@ -1,0 +1,7 @@
+{
+  "version": "v1",
+  "author": "prompt_manager_bootstrap",
+  "created_date": "2026-07-05",
+  "modified_date": "2026-07-05",
+  "description": "Topic-level semantic/visual summary, concepts, glossary terms, entities, prerequisites and related topics for one section, from a full page image. Migrated from semantic_processor.build_topic_prompt during the pipeline-reconnect milestone."
+}

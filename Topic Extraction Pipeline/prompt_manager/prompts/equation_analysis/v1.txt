@@ -1,0 +1,31 @@
+This image shows a mathematical/economic equation from an NCERT textbook,
+section "{{ topic_title }}". Detected text hint: "{{ raw_text_hint }}".
+
+Source textbook language: {{ target_language_name }}. `spoken_form` and any
+variable-name descriptions must be written in {{ target_language_name }},
+the way a teacher would actually say it in that language — do NOT translate
+into English unless {{ target_language_name }} is English. `latex` itself
+is notation and stays in standard LaTeX regardless of language.
+
+Never copy sentences verbatim. Per project policy, every field below except
+`variables` is AI-inferred and MUST be an evidence-triple object:
+{"value": <answer>, "confidence": <0-1 float>, "evidence_basis": <short string>}.
+
+Respond with a single valid JSON object and nothing else, with exactly these keys:
+latex: triple, value = best-effort LaTeX transcription
+spoken_form: triple, value = how a teacher would say it aloud
+variables: list of strings (plain, not triples), each "symbol: short own-words meaning"
+semantic_meaning: triple, value = short string, own words, maximum 25 words
+
+EXAMPLE of the exact JSON shape required (structure only -- placeholder
+about a different equation; do not reuse these values, only the nesting):
+{
+  "latex": {"value": "E = mc^2", "confidence": 0.9, "evidence_basis": "clearly printed formula"},
+  "spoken_form": {"value": "E equals m c squared", "confidence": 0.85, "evidence_basis": "standard reading of the formula"},
+  "variables": ["E: energy", "m: mass", "c: speed of light"],
+  "semantic_meaning": {"value": "Relates energy to mass via the speed of light.", "confidence": 0.8, "evidence_basis": "well-known physical relation"}
+}
+Every scalar field in YOUR answer (latex, spoken_form, semantic_meaning)
+MUST be an object with exactly the three keys value/confidence/evidence_basis,
+nested exactly like the example above -- never a bare string at the top
+level of those keys. `variables` stays a plain list of strings, not triples.

@@ -1,0 +1,21 @@
+This image shows a {{ entity_type }} from an NCERT textbook, section
+"{{ topic_title }}". Caption text detected nearby: "{{ caption }}".
+Nearby body text for context: {{ nearby_body_text }}
+
+Source textbook language: {{ target_language_name }}. Write every text
+value (semantic_description, key_visual_elements, layout) in
+{{ target_language_name }} exactly as the source uses those terms — do NOT
+translate into English unless {{ target_language_name }} is English.
+
+Never copy or quote text verbatim — paraphrase only, maximum 25 words for
+semantic_description's value. Per project policy, semantic_description,
+layout, and every key_visual_elements item are evidence-triple objects:
+{"value": <answer>, "confidence": <0-1 float>, "evidence_basis": <short string>}.
+visual_relationships items are plain {"from_element", "to_element", "relationship_type"}
+objects (no triple needed).
+
+Respond with a single valid JSON object and nothing else, with exactly these keys:
+semantic_description: triple, value ~20-25 words
+key_visual_elements: non-empty list of triples, each value a short labeled element
+visual_relationships: list of {"from_element": <string>, "to_element": <string>, "relationship_type": <string>}
+layout: triple, value a short phrase, or null if not meaningful

@@ -1,0 +1,58 @@
+This image is a figure from an NCERT textbook, in the section
+"{{ topic_title }}". Caption text detected nearby: "{{ caption }}".
+Nearby body text for context: {{ nearby_body_text }}
+
+Source textbook language: {{ target_language_name }}. Write every text
+value (semantic_description, key_visual_elements, educational_purpose,
+concepts, related_topics) in {{ target_language_name }} exactly as the
+source uses those terms — do NOT translate into English unless
+{{ target_language_name }} is English.
+
+Never copy or quote sentences verbatim from the page — write only your own
+paraphrased understanding, maximum 25 words for semantic_description's value.
+
+Per project policy, every field below is AI-inferred and MUST be an evidence-triple
+object: {"value": <the actual answer>, "confidence": <0-1 float>, "evidence_basis": <short string>}.
+key_visual_elements is a non-empty list where each item is itself such a triple
+(value = the short element label). visual_relationships items are plain
+{"from_element", "to_element", "relationship_type"} objects (no triple needed).
+
+Respond with a single valid JSON object and nothing else, with exactly these keys:
+figure_type: triple, value one of photo, illustration, diagram, chart, graph, map, timeline
+semantic_description: triple, value ~20-25 words, retrieval gist only
+key_visual_elements: non-empty list of triples, each value a short labeled element (e.g. "arrow from sun to leaf")
+visual_relationships: list of {"from_element": <string>, "to_element": <string>, "relationship_type": <string>}
+layout: triple, value a short phrase describing coarse spatial arrangement, or null if not meaningful
+educational_purpose: triple, value a short string
+concepts: list of strings (plain, not triples)
+related_topics: list of strings (plain, not triples)
+importance: triple, value one of "low"|"medium"|"high"
+difficulty: triple, value one of "easy"|"medium"|"hard"
+animation_candidate: triple, value true|false
+
+EXAMPLE of the exact JSON shape required (structure only -- this is a
+placeholder about a different figure; do not reuse these values, only copy
+the nesting pattern exactly):
+{
+  "figure_type": {"value": "chart", "confidence": 0.88, "evidence_basis": "bar chart with labeled axes"},
+  "semantic_description": {"value": "Compares yearly rainfall across four regions using bar heights.", "confidence": 0.8, "evidence_basis": "bars and axis labels visible"},
+  "key_visual_elements": [
+    {"value": "y-axis labeled rainfall in mm", "confidence": 0.85, "evidence_basis": "axis label text"},
+    {"value": "four labeled bars", "confidence": 0.85, "evidence_basis": "distinct colored bars"}
+  ],
+  "visual_relationships": [
+    {"from_element": "region A bar", "to_element": "region B bar", "relationship_type": "higher than"}
+  ],
+  "layout": {"value": "vertical bar chart", "confidence": 0.75, "evidence_basis": "bars arranged left to right"},
+  "educational_purpose": {"value": "Teaches how to compare quantities visually across categories.", "confidence": 0.8, "evidence_basis": "typical data-comparison chart"},
+  "concepts": ["data comparison", "rainfall"],
+  "related_topics": ["climate patterns"],
+  "importance": {"value": "medium", "confidence": 0.7, "evidence_basis": "supporting, not central, figure"},
+  "difficulty": {"value": "easy", "confidence": 0.7, "evidence_basis": "simple bar comparison"},
+  "animation_candidate": {"value": true, "confidence": 0.6, "evidence_basis": "bars could grow in sequence"}
+}
+Every scalar field in YOUR answer (figure_type, semantic_description, layout,
+educational_purpose, importance, difficulty, animation_candidate) and every
+item in key_visual_elements MUST be an object with exactly the three keys
+value/confidence/evidence_basis, nested exactly like the example above --
+never a bare string, number, or boolean at the top level of those keys.

@@ -1,0 +1,31 @@
+Chapter "{{ chapter_title }}" has been analyzed with this metadata:
+chapter_type={{ chapter_type }}, visual_dependency={{ visual_dependency }},
+formula_dependency={{ formula_dependency }}.
+
+Source textbook language: {{ target_language_name }}. Any topic/domain names
+you list (visual_priority, real_world_domains) must stay in
+{{ target_language_name }} exactly as the source uses them — do NOT
+translate them into English unless {{ target_language_name }} is English.
+
+This describes the chapter's KNOWLEDGE CONTENT only -- which kinds of
+visuals its material structurally calls for, and which real-world domains
+it draws examples from. Do NOT decide how to teach it, what tone or style
+to use, or what to quiz on -- those are later-phase decisions, not facts
+about this chapter's content. Never copy sentences verbatim.
+
+Per project policy, list fields are plain lists of strings, not
+evidence-triple objects.
+
+Respond with a single valid JSON object and nothing else, with exactly these keys:
+preferred_visual_types: list of strings
+visual_priority: list of strings
+real_world_domains: list of strings
+
+EXAMPLE of the exact JSON shape required (structure only -- placeholder
+about a different chapter; do not reuse these values, only the nesting):
+{
+  "preferred_visual_types": ["diagram", "animation"],
+  "visual_priority": ["supply-demand curve"],
+  "real_world_domains": ["everyday shopping decisions"]
+}
+All three keys are plain lists of strings -- never evidence-triple objects.

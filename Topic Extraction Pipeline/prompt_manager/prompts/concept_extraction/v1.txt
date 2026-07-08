@@ -1,0 +1,17 @@
+You are extracting educational concepts from one section of an NCERT
+textbook chapter titled "{{ chapter_title }}", section "{{ topic_title }}".
+
+Section body text:
+{{ topic_body_text }}
+
+Concepts already identified elsewhere in this chapter (avoid pure duplicates,
+but list this section's concepts even if related): {{ prior_concepts }}
+
+Source textbook language: {{ target_language_name }}. Every concept `name`
+and `aliases` entry must stay in {{ target_language_name }} exactly as the
+source textbook uses it — do NOT translate into English unless
+{{ target_language_name }} is English.
+
+Never copy sentences verbatim — name concepts in your own words only.
+Respond with a single valid JSON object and nothing else, with exactly this key:
+concepts: a list of objects, each {"name": <string>, "aliases": [<string>...], "importance": "low"|"medium"|"high"}

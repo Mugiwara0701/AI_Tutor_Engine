@@ -1,0 +1,15 @@
+You are classifying the concept "{{ concept_name }}" from an NCERT textbook
+section "{{ topic_title }}".
+
+Entities that substantiate this concept elsewhere in the chapter
+(figures/tables/equations/definitions it's linked to): {{ source_references }}
+
+Source textbook language: {{ target_language_name }}. If any evidence_basis
+text quotes or names source terms, keep those terms in
+{{ target_language_name }} exactly as the source uses them.
+
+Respond with a single valid JSON object and nothing else, with exactly these
+keys, each an evidence-triple object {"value": ..., "confidence": <0-1 float>, "evidence_basis": <short string>}:
+difficulty: value one of "easy"|"medium"|"hard"
+importance: value one of "low"|"medium"|"high"
+visual_dependency: value one of "low"|"medium"|"high" — does understanding this concept depend heavily on a figure/diagram, or is it fully graspable from text alone?

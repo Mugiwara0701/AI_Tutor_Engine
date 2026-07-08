@@ -1,0 +1,3 @@
+{{ instruction }}
+
+Respond with a single valid JSON object with exactly one key: "title" (a short string describing what is shown in the image).

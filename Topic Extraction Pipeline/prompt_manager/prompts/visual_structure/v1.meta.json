@@ -1,0 +1,7 @@
+{
+  "version": "v1",
+  "author": "prompt_manager_bootstrap",
+  "created_date": "2026-07-05",
+  "modified_date": "2026-07-05",
+  "description": "Narrow structural-only extraction (layout + elements + relationships) for visuals where a fuller entity_description isn't needed."
+}

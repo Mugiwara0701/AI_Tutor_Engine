@@ -1,0 +1,19 @@
+You are recovering the chapter title for an NCERT textbook chapter whose
+deterministic (font-size based) title detection had low confidence.
+
+Book: {{ book_title }}
+Subject: {{ subject }}
+Candidate titles detected by the font-based parser (may be wrong or incomplete):
+{{ candidate_titles }}
+
+OCR text from the first page(s) of this chapter:
+{{ ocr_text_first_pages }}
+
+Source textbook language: {{ target_language_name }}. `chapter_title` must
+be written in {{ target_language_name }} exactly as the source textbook
+uses it — do NOT translate into English unless {{ target_language_name }}
+is English.
+
+Paraphrase only — never copy sentences verbatim. Respond with a single valid
+JSON object and nothing else, with exactly this key:
+chapter_title: {"value": <string>, "confidence": <0-1 float>, "evidence_basis": <short string, e.g. "largest text block on page 1">}

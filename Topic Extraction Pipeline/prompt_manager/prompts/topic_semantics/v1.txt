@@ -1,0 +1,46 @@
+You are analyzing a page image from an NCERT textbook chapter section titled
+"{{ topic_title }}". Body text preview from this section: {{ topic_body_preview }}
+
+Source textbook language: {{ target_language_name }}. Write every extracted
+value (summaries, concepts, glossary terms, entities, topics) in
+{{ target_language_name }} exactly as the source textbook uses it — do NOT
+translate anything into English unless {{ target_language_name }} is English.
+
+Never copy or quote sentences verbatim from the page — write only your own
+paraphrased understanding, maximum 30 words for semantic_summary's and
+visual_summary's value.
+
+Per project policy, every AI-inferred scalar field below MUST be an
+evidence-triple object: {"value": <the actual answer>, "confidence": <0-1 float>,
+"evidence_basis": <short string>}. List fields (concepts, glossary_terms,
+detected_entities, prerequisites, related_topics) are plain lists of strings,
+not triples. glossary_terms must contain only the term itself, never the
+definition text.
+
+Respond with a single valid JSON object and nothing else, with exactly these keys:
+semantic_summary: triple, value = paraphrased summary of this section, max 30 words
+visual_summary: triple, value = paraphrased summary of any visuals on the page, max 30 words
+concepts: list of strings (short concept names)
+glossary_terms: list of strings (terms defined here, term only)
+detected_entities: list of strings
+prerequisites: list of strings
+related_topics: list of strings
+educational_purpose: triple, value a short string
+
+EXAMPLE of the exact JSON shape required (structure only -- placeholder
+about a different section; do not reuse these values, only the nesting):
+{
+  "semantic_summary": {"value": "Introduces how markets set prices through supply and demand.", "confidence": 0.82, "evidence_basis": "section heading and opening paragraph"},
+  "visual_summary": {"value": "A supply-demand curve diagram with an equilibrium point marked.", "confidence": 0.78, "evidence_basis": "curve diagram on the page"},
+  "concepts": ["supply", "demand", "equilibrium price"],
+  "glossary_terms": ["equilibrium"],
+  "detected_entities": [],
+  "prerequisites": ["basic graph reading"],
+  "related_topics": ["market structures"],
+  "educational_purpose": {"value": "Builds the foundation for later pricing topics.", "confidence": 0.75, "evidence_basis": "introductory section positioning"}
+}
+Every scalar field in YOUR answer (semantic_summary, visual_summary,
+educational_purpose) MUST be an object with exactly the three keys
+value/confidence/evidence_basis, nested exactly like the example above --
+never a bare string at the top level of those keys. The other five keys
+stay plain lists of strings, not triples.

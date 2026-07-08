@@ -1,0 +1,18 @@
+You are recovering a section heading in an NCERT textbook chapter titled
+"{{ chapter_title }}" whose deterministic heading detection had low
+confidence at this location.
+
+Expected heading level (1 = topic, 2 = sub-topic): {{ expected_level }}
+Nearby headings already detected with higher confidence: {{ nearby_headings }}
+OCR text of the region in question:
+{{ ocr_text_region }}
+
+Source textbook language: {{ target_language_name }}. `heading_title` must
+be written in {{ target_language_name }} exactly as the source textbook
+uses it — do NOT translate into English unless {{ target_language_name }}
+is English.
+
+Paraphrase only — never copy sentences verbatim. Respond with a single valid
+JSON object and nothing else, with exactly these keys:
+heading_title: {"value": <string>, "confidence": <0-1 float>, "evidence_basis": <short string>}
+numbering: {"value": <string or null>, "confidence": <0-1 float>, "evidence_basis": <short string>}
