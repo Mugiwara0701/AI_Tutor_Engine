@@ -78,6 +78,7 @@ from modules import canonical
 from modules.pdf_parser import make_id, slugify, auto_detect_subject, auto_detect_class
 from compiler.registries import create_registry_manager, populate_registries
 from compiler.enrichment import enrich_registries
+from compiler.normalization import normalize_registries
 from compiler import state as compiler_state
 
 logging.basicConfig(
@@ -785,6 +786,21 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # manager any later phase reads via compiler.get_current_registry_manager()
     # is always the enriched one, never a pre-enrichment snapshot.
     enrich_registries(registry_manager)
+    # ---- Phase B1c: canonical normalization layer -----------------------
+    # Adds deterministic lookup-key/alias-normalization metadata
+    # (canonical_lookup_key, canonical_aliases, normalization) onto every
+    # item already enriched above. See compiler/normalization.py's module
+    # docstring for the full field list, derivation rules, and why this
+    # runs exactly here: same "same dict objects, additive-only mutation"
+    # reasoning as B1b's enrich_registries() call directly above -- this
+    # is a second, independent additive pass over the same items, not a
+    # redesign of enrichment. Runs after enrich_registries() (so
+    # normalization can eventually be told apart from pre-normalization
+    # enriched-only state via each item's own field set) and before
+    # set_current_registry_manager() so the manager any later phase reads
+    # via compiler.get_current_registry_manager() is always the fully
+    # enriched-and-normalized one.
+    normalize_registries(registry_manager)
     compiler_state.set_current_registry_manager(registry_manager)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over

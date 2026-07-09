@@ -87,6 +87,16 @@ from .enrichment import (
     enrich_registry,
     enrich_registries,
 )
+from .normalization import (
+    NORMALIZATION_VERSION,
+    NORMALIZATION_FIELDS,
+    normalize_text,
+    canonical_lookup_key,
+    compute_normalization,
+    normalize_item,
+    normalize_registry,
+    normalize_registries,
+)
 
 __all__ = [
     "CanonicalRegistry",
@@ -125,4 +135,12 @@ __all__ = [
     "enrich_item",
     "enrich_registry",
     "enrich_registries",
+    "NORMALIZATION_VERSION",
+    "NORMALIZATION_FIELDS",
+    "normalize_text",
+    "canonical_lookup_key",
+    "compute_normalization",
+    "normalize_item",
+    "normalize_registry",
+    "normalize_registries",
 ]
