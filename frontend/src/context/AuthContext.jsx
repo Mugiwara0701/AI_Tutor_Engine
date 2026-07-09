@@ -1,21 +1,62 @@
 // src/context/AuthContext.jsx
-// Placeholder for AuthContext — implement component/logic here.
 
-import { createContext, useCallback, useMemo, useState } from "react";
-import { mockLogin, mockSignUp } from "../features/auth/api/mockAuth.js";
+import {
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import {
+  loginUser,
+  signUpUser,
+  logoutUser,
+  fetchCurrentUser,
+} from "../features/auth/api/authApi.js";
+import { getStoredToken, setStoredToken } from "../lib/apiClient.js";
 
 export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false); // login/signup in flight
+  const [isRestoring, setIsRestoring] = useState(true); // initial session check on page load
   const [error, setError] = useState(null);
+
+  // On first load, if a token is already stored (from a previous session),
+  // try to fetch the current user to restore the session without
+  // requiring the person to log in again.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreSession() {
+      const token = getStoredToken();
+      if (!token) {
+        setIsRestoring(false);
+        return;
+      }
+      try {
+        const restoredUser = await fetchCurrentUser();
+        if (!cancelled) setUser(restoredUser);
+      } catch {
+        // Token invalid/expired — clear it silently and require fresh login.
+        setStoredToken(null);
+      } finally {
+        if (!cancelled) setIsRestoring(false);
+      }
+    }
+
+    restoreSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const login = useCallback(async (credentials) => {
     setIsLoading(true);
     setError(null);
     try {
-      const loggedInUser = await mockLogin(credentials);
+      const loggedInUser = await loginUser(credentials);
       setUser(loggedInUser);
       return loggedInUser;
     } catch (err) {
@@ -30,7 +71,7 @@ export function AuthProvider({ children }) {
     setIsLoading(true);
     setError(null);
     try {
-      const newUser = await mockSignUp(details);
+      const newUser = await signUpUser(details);
       setUser(newUser);
       return newUser;
     } catch (err) {
@@ -41,13 +82,20 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
-    setUser(null);
+  const logout = useCallback(async () => {
+    try {
+      await logoutUser();
+    } catch {
+      // Best-effort — clear local session regardless of API outcome.
+    } finally {
+      setStoredToken(null);
+      setUser(null);
+    }
   }, []);
 
   const value = useMemo(
-    () => ({ user, isLoading, error, login, signUp, logout }),
-    [user, isLoading, error, login, signUp, logout],
+    () => ({ user, isLoading, isRestoring, error, login, signUp, logout }),
+    [user, isLoading, isRestoring, error, login, signUp, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

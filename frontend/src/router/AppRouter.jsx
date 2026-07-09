@@ -25,9 +25,9 @@ export default function AppRouter() {
 
       <Route
         element={
-          <DashboardLayout />
-          // <ProtectedRoute>
-          // </ProtectedRoute>
+          <ProtectedRoute>
+            <DashboardLayout />
+          </ProtectedRoute>
         }
       >
         <Route path="/dashboard" element={<DashboardPage />} />
