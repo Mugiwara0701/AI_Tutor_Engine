@@ -76,6 +76,8 @@ from modules import kg_readiness
 from modules import equation_intent
 from modules import canonical
 from modules.pdf_parser import make_id, slugify, auto_detect_subject, auto_detect_class
+from compiler.registries import create_registry_manager, populate_registries
+from compiler import state as compiler_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -198,6 +200,15 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # modules/semantic_processor.py's reset_chapter_state() docstring for
     # why this must never leak across chapters).
     semantic_processor.reset_chapter_state()
+    # Phase B1 refinement (compiler/state.py): clear the *previous*
+    # chapter's populated RegistryManager, if any, from the compiler's
+    # current-compilation-state slot before this chapter's own registries
+    # are built below -- same reasoning as reset_chapter_state() just
+    # above, applied to the registry layer: a chapter that returns early
+    # (already-extracted skip, or an exception) must never leave a stale
+    # prior chapter's registries looking like "the current one" to any
+    # later phase that reads compiler.get_current_registry_manager().
+    compiler_state.reset_registry_state()
 
     if not force and json_writer.is_already_extracted(
             structure.klass, structure.subject, book_slug, structure.chapter_number, structure.chapter_title,
@@ -721,6 +732,58 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         f"validated educational object(s) ({validation_report['removed_duplicate_formulas']} duplicate "
         f"formula(s), {validation_report['removed_duplicate_definitions']} duplicate definition(s), "
         f"{validation_report['removed_bare_arithmetic']} bare-arithmetic object(s) removed).")
+
+    # ---- Phase B1: canonical registry population -----------------------------
+    # Symbol-table layer for this compiler run: every canonical educational
+    # object this chapter built above (concepts/definitions/glossary/figures/
+    # diagrams/tables/equations/activities/boxes/warnings/notes/examples) is
+    # inserted into its matching CanonicalRegistry (compiler/registries.py),
+    # owned by one RegistryManager for this chapter. Insertion order matches
+    # each list's own order above -- the same deterministic order already
+    # passed into json_writer.assemble_chapter_json below -- so registry
+    # population never introduces its own ordering.
+    #
+    # This is purely an INTERNAL compiler representation for this Phase B1
+    # milestone: registry_manager is not attached to chapter_dict, not
+    # written into the Chapter JSON -- the compiler continues to build the
+    # Chapter JSON exactly as before this integration point. It IS,
+    # however (B1 refinement pass), handed to compiler/state.py's
+    # set_current_registry_manager() right below, so it survives past the
+    # end of this function as the compiler's current-compilation-state
+    # rather than simply falling out of scope -- see compiler/state.py's
+    # module docstring for the full ownership/lifecycle contract. Later
+    # Phase B milestones (registry enrichment, cross-link resolution,
+    # Knowledge Graph construction, ...) are what will actually consume
+    # it via compiler.get_current_registry_manager(); populating and
+    # retaining it here now is what makes the registries "the
+    # authoritative source for all later compiler phases" per the Phase
+    # B1 task objective, without yet changing pipeline.py's output
+    # contract.
+    registry_manager = create_registry_manager()
+    populate_registries(
+        registry_manager,
+        concepts=all_concepts, definitions=definitions, glossary=glossary,
+        figures=figures, diagrams=diagrams, tables=tables, equations=equations,
+        activities=activities, boxes=boxes, warnings=warnings_list, notes=notes,
+        examples=examples,
+    )
+    compiler_state.set_current_registry_manager(registry_manager)
+    # Diagnostic only, and deliberately guarded: RegistryStatistics.
+    # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
+    # every registry's contents (see registry.py's _estimate_memory_bytes),
+    # so computing it unconditionally on every chapter run -- as an
+    # earlier version of this integration point did, passing
+    # registry_manager.statistics() directly as a logger.debug() argument
+    # -- did that scan every run regardless of logging level (Python
+    # evaluates call arguments eagerly; logger.debug()'s own laziness only
+    # covers %-formatting, not argument construction). Gating on
+    # isEnabledFor(DEBUG) first means this work is skipped entirely at
+    # the INFO level this pipeline runs at by default -- no behavior
+    # change to what gets logged when DEBUG *is* enabled, just no
+    # unnecessary work when it isn't.
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("chapter '%s': registry population — %s",
+                     structure.chapter_title, registry_manager.statistics())
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,
