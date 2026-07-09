@@ -54,9 +54,36 @@ from dataclasses import dataclass
 from glob import glob
 from typing import List, Optional
 
-from config import PDF_INPUT_FOLDER, JSON_OUTPUT_FOLDER
+from config import PDF_INPUT_FOLDER, JSON_OUTPUT_FOLDER, STORAGE_BOARD
+from modules import json_writer
+from storage import OneDriveStorage
+from storage.migration import ensure_migration_complete
 
 logger = logging.getLogger("ncert_pipeline.orchestrator")
+
+
+def _ensure_storage_ready() -> OneDriveStorage:
+    """Startup gate, run once at the top of run() before any PDF
+    extraction begins:
+
+        Initialize Storage -> Authenticate -> check migration state
+            -> if not complete: upload all existing local persistent
+               data, verify uploads, mark migration complete
+        -> only after that succeeds -> (run() goes on to) start PDF
+           extraction
+
+    Raises whatever storage/migration raise (AuthenticationError,
+    MigrationError, ...) on failure; run() does not catch this, so a
+    failed migration stops the whole startup before any book is
+    discovered or processed, per the requirement that extraction must
+    never begin before migration completes.
+    """
+    storage = OneDriveStorage()          # Initialize Storage
+    storage.authenticate()               # Authenticate
+    ensure_migration_complete(           # Check migration state / migrate / verify / mark complete
+        storage, local_root=JSON_OUTPUT_FOLDER, board=STORAGE_BOARD
+    )
+    return storage
 
 
 @dataclass
@@ -140,6 +167,14 @@ def run(use_vlm: bool = True, page_batch_size: int = 6, force: bool = False,
     asked for. Returns the per-book stats dicts for anyone (tests, a
     caller script) that wants the numbers without scraping logs.
     """
+    # Startup gate: storage init -> auth -> first-run migration must all
+    # succeed BEFORE any PDF is discovered or extraction begins (see
+    # _ensure_storage_ready()'s docstring for the exact required order).
+    # Not wrapped in try/except here on purpose -- a migration failure
+    # must stop startup entirely, not be swallowed like a per-book error.
+    storage = _ensure_storage_ready()
+    json_writer.set_storage(storage)
+
     books = discover_books(pdf_input_folder)
 
     print("=" * 50)

@@ -19,6 +19,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import book_orchestrator  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _stub_storage_startup_gate(monkeypatch):
+    """Every test in this file exercises discovery/orchestration logic,
+    not the OneDrive storage-init/auth/migration startup gate (that gate
+    is covered on its own in tests/test_migration.py and
+    tests/test_book_orchestrator_storage_gate.py) -- stub it out so these
+    tests don't need real MSAL/Graph config or network access, same
+    principle as the fake_pipeline fixture below for extraction."""
+    monkeypatch.setattr(book_orchestrator, "_ensure_storage_ready", lambda: None)
+    monkeypatch.setattr(book_orchestrator.json_writer, "set_storage", lambda storage: None)
+
+
 def _touch_pdf(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:

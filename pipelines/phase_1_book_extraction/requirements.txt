@@ -9,3 +9,10 @@ torch>=2.2.0
 transformers>=4.45.0
 accelerate>=0.30.0
 bitsandbytes>=0.43.0 ; platform_system != "Darwin"
+
+# storage/ (OneDrive persistent-storage backend) -- now wired into
+# modules/json_writer.py, so these are required for normal pipeline runs,
+# not just standalone storage/ usage. See storage/requirements-storage.txt.
+msal>=1.28.0
+requests>=2.31.0
+PyYAML>=6.0

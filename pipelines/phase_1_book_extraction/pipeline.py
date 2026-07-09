@@ -67,7 +67,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 import fitz  # PyMuPDF
 
-from config import (PDF_INPUT_FOLDER, JSON_OUTPUT_FOLDER, DEFAULT_PAGE_BATCH_SIZE,
+from config import (PDF_INPUT_FOLDER, DEFAULT_PAGE_BATCH_SIZE,
                      VLM_MODEL_ID, DEFAULT_SUBJECT, DEFAULT_CLASS)
 from modules import pdf_parser, layout_detector, ocr_engine, content_blocks, language_detector
 from modules import semantic_processor, graph_builder, json_writer, vlm_inference
@@ -762,7 +762,11 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
     """
     pdf_folder = pdf_folder or PDF_INPUT_FOLDER
     os.makedirs(pdf_folder, exist_ok=True)
-    os.makedirs(output_root if output_root is not None else JSON_OUTPUT_FOLDER, exist_ok=True)
+    # NOTE: no local os.makedirs() for the output side anymore -- chapter/
+    # manifest output now lives on OneDrive (see modules/json_writer.py),
+    # and json_writer.book_output_dir() provisions each book's
+    # json_out/logs/cache/assets folders there automatically the first
+    # time a chapter for that book is written.
     all_paths = sorted(glob.glob(os.path.join(pdf_folder, "*.pdf")))
     if not all_paths:
         logger.warning("No PDFs found in '%s'.", os.path.abspath(pdf_folder))

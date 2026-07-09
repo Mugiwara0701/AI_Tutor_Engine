@@ -2,10 +2,12 @@
 json_writer.py — assembles Phase 1's Stage A-E output into ONE schema-shaped
 dict per chapter, validates it, and writes it to:
 
-    json_out/Class_<klass>/<Subject>/<Book_Name>/<NN>_<chapter-slug>.json
+    AI_TUTOR/<board>/Class_<klass>/<Subject>/<Book_Name>/json_out/<NN>_<chapter-slug>.json
 
-plus a single json_out/Class_<klass>/<Subject>/<Book_Name>/_book_manifest.json
-per book (written once by pipeline.py after all chapters in a book are done).
+plus a single .../json_out/_book_manifest.json per book (written once by
+pipeline.py after all chapters in a book are done), via the OneDrive storage
+SDK (storage/onedrive_storage.py) -- see book_output_dir() below, which is
+the single place that talks to storage.OneDriveStorage.
 
 This module does no PDF/model work itself — it is purely a shape-assembler +
 file writer, so it's the one place that has to know the full schema layout.
@@ -24,51 +26,84 @@ Two output shapes live here:
     longer uses this as its primary output.
 """
 import os
-import re
-import json
 import logging
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
-from config import JSON_OUTPUT_FOLDER, SCHEMA_VERSION
+from config import SCHEMA_VERSION, STORAGE_BOARD
 from modules.pdf_parser import slugify, ChapterStructure, make_id
 from modules.validator import validate_chapter, validate_educational_objects_document
 from modules.stage_a_geometry import Block
+from storage import OneDriveStorage
 
 logger = logging.getLogger("ncert_pipeline.writer")
 
+# Per-book subfolders provisioned automatically (alongside json_out/, which
+# is where every write below actually lands) so a book's OneDrive folder is
+# ready for logs/cache/asset writers that land in a future phase without
+# needing another round of folder-creation code.
+_BOOK_SUBFOLDERS = ("json_out", "logs", "cache", "assets")
 
-def _dir_component(text: str) -> str:
-    """Formats one Class/Subject/Book folder-name component as
-    Title_Case_With_Underscores (e.g. "business studies" ->
-    "Business_Studies", "introductory-macroeconomics" -> "Introductory_Macroeconomics"),
-    per the required json_out/Class_Name/Subject_Name/Book_Name/ layout.
+_storage_singleton: Optional[OneDriveStorage] = None
 
-    Deliberately separate from slugify() (lowercase-hyphenated), which is
-    left untouched and still used for chapter filenames / topic & figure
-    IDs elsewhere -- this only changes how directory *names* are rendered.
-    """
-    words = [w for w in re.split(r"[\s_-]+", str(text).strip()) if w]
-    return "_".join(w[:1].upper() + w[1:] for w in words) if words else "Untitled"
+
+def _get_storage() -> OneDriveStorage:
+    """Lazily constructs (and reuses) the single OneDriveStorage client for
+    this process. Lazy on purpose: importing this module (e.g. for
+    schema-only tests) must not require config/storage.yaml to be filled in
+    or trigger any auth. The first real read/write is what pays that cost.
+
+    In the normal `python pipeline.py` / book_orchestrator.run() startup
+    path, set_storage() below is called first (after the startup gate's
+    Initialize Storage -> Authenticate -> migration steps have already
+    run), so this lazy path only actually constructs a fresh client when
+    json_writer is used standalone (e.g. a test or script that never goes
+    through that startup gate)."""
+    global _storage_singleton
+    if _storage_singleton is None:
+        _storage_singleton = OneDriveStorage()
+    return _storage_singleton
+
+
+def set_storage(storage: OneDriveStorage) -> None:
+    """Lets a caller that already constructed (and authenticated) an
+    OneDriveStorage instance -- book_orchestrator.py's startup gate, after
+    first-run migration -- hand it to this module instead of _get_storage()
+    lazily constructing (and re-authenticating) a second one."""
+    global _storage_singleton
+    _storage_singleton = storage
 
 
 def book_output_dir(klass: str, subject: str, book_slug: str, output_root: Optional[str] = None) -> str:
-    """Returns json_out/Class_<klass>/<Subject>/<Book_Name>/, creating it if
-    needed. This is the single source of truth for the output hierarchy --
-    chapter_output_path() and write_book_manifest() both call it, so the
-    layout can't drift between the two.
+    """Returns the OneDrive-relative .../json_out/ path for this book (e.g.
+    "AI_TUTOR/CBSE/Class_12/Chemistry/Solutions/json_out"), creating the
+    book's full folder tree on OneDrive -- json_out/, logs/, cache/,
+    assets/ -- if any of it doesn't already exist yet. This is the single
+    source of truth for the output hierarchy -- chapter_output_path() and
+    write_book_manifest() both call it, so the layout can't drift between
+    the two.
 
-    `output_root` overrides the base JSON_OUTPUT_FOLDER for this call only;
-    it is NOT a place to inject the book name again (the book_orchestrator
-    used to do that, which produced a duplicated/misordered path like
-    json_out/<book>/class_<klass>/<subject>/<book>/... -- output_root should
-    just be JSON_OUTPUT_FOLDER, or another books-in-general root).
+    Class/Subject/Book -> folder-name formatting (Title_Case_With_Underscores)
+    and the AI_TUTOR/<board>/ root are entirely owned by storage.PathResolver
+    (see storage/path_resolver.py) -- this function no longer duplicates
+    that formatting logic locally.
+
+    `output_root`, when given, is a raw AI_TUTOR-relative *book* folder path
+    used IN PLACE OF the Board/Class/Subject/Book resolution below (e.g. for
+    a caller/test that wants to redirect one book's output under a
+    different prefix); it is NOT a place to inject the book name again (the
+    book_orchestrator used to do that locally, which produced a
+    duplicated/misordered path -- output_root should name the *book's*
+    folder directly, not a books-in-general root).
     """
-    base = output_root if output_root is not None else JSON_OUTPUT_FOLDER
-    out_dir = os.path.join(base, f"Class_{_dir_component(str(klass))}",
-                            _dir_component(subject), _dir_component(book_slug))
-    os.makedirs(out_dir, exist_ok=True)
-    return out_dir
+    storage = _get_storage()
+    book_dir = output_root.strip("/") if output_root is not None else \
+        storage.resolve_path(STORAGE_BOARD, klass, subject, book_slug)
+
+    for sub in _BOOK_SUBFOLDERS:
+        storage.create_directory(path=f"{book_dir}/{sub}")
+
+    return f"{book_dir}/json_out"
 
 
 def chapter_output_path(klass: str, subject: str, book_slug: str, chapter_number, chapter_title: str,
@@ -76,15 +111,19 @@ def chapter_output_path(klass: str, subject: str, book_slug: str, chapter_number
     out_dir = book_output_dir(klass, subject, book_slug, output_root=output_root)
     chnum_str = str(chapter_number).zfill(2) if isinstance(chapter_number, int) else str(chapter_number)
     filename = f"{chnum_str}_{slugify(chapter_title)}.json"
-    return os.path.join(out_dir, filename)
+    return f"{out_dir}/{filename}"
 
 
 def is_already_extracted(klass: str, subject: str, book_slug: str, chapter_number, chapter_title: str,
                           output_root: Optional[str] = None) -> bool:
-    """Resumable extraction: if the chapter JSON already exists, skip it on
-    re-run unless the caller explicitly forces re-processing."""
-    return os.path.exists(chapter_output_path(klass, subject, book_slug, chapter_number, chapter_title,
-                                               output_root=output_root))
+    """Resumable extraction: if the chapter JSON already exists on
+    OneDrive, skip it on re-run unless the caller explicitly forces
+    re-processing."""
+    file_path = chapter_output_path(klass, subject, book_slug, chapter_number, chapter_title,
+                                     output_root=output_root)
+    return _get_storage().exists(path=file_path)
+
+
 
 
 def _flatten_blocks_to_dicts(blocks: Optional[List["Block"]]) -> List[Dict[str, Any]]:
@@ -265,8 +304,7 @@ def write_chapter_json(chapter_dict: Dict[str, Any], klass: str, subject: str, b
 
     out_path = chapter_output_path(klass, subject, book_slug, chapter_number, chapter_title,
                                     output_root=output_root)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(normalized, f, indent=2, ensure_ascii=False)
+    _get_storage().upload_json(normalized, path=out_path, indent=2)
     logger.info("Wrote chapter JSON -> %s", out_path)
     return out_path
 
@@ -274,15 +312,14 @@ def write_chapter_json(chapter_dict: Dict[str, Any], klass: str, subject: str, b
 def write_book_manifest(klass: str, subject: str, book_slug: str, book_title: str, toc: Dict[str, Any],
                          output_root: Optional[str] = None) -> str:
     out_dir = book_output_dir(klass, subject, book_slug, output_root=output_root)
-    manifest_path = os.path.join(out_dir, "_book_manifest.json")
-    with open(manifest_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "schema_version": SCHEMA_VERSION,
-            "book_title": book_title,
-            "subject": subject,
-            "class": klass,
-            "table_of_contents": toc or {},
-        }, f, indent=2, ensure_ascii=False)
+    manifest_path = f"{out_dir}/_book_manifest.json"
+    _get_storage().upload_json({
+        "schema_version": SCHEMA_VERSION,
+        "book_title": book_title,
+        "subject": subject,
+        "class": klass,
+        "table_of_contents": toc or {},
+    }, path=manifest_path, indent=2)
     logger.info("Wrote book manifest -> %s", manifest_path)
     return manifest_path
 
@@ -405,7 +442,6 @@ def write_educational_objects_json(doc_dict: Dict[str, Any], klass: str, subject
 
     out_path = chapter_output_path(klass, subject, book_slug, chapter_number, chapter_title,
                                     output_root=output_root)
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(normalized, f, indent=2, ensure_ascii=False)
+    _get_storage().upload_json(normalized, path=out_path, indent=2)
     logger.info("Wrote educational objects JSON -> %s", out_path)
     return out_path

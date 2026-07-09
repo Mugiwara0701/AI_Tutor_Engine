@@ -1,0 +1,78 @@
+# config/storage.yaml — configuration for the OneDrive storage SDK
+# (storage/ package). This is the ONLY place OneDrive settings should be
+# defined; nothing in storage/ hardcodes these values.
+#
+# Fill in client_id from an Azure AD App Registration with:
+#   - Supported account types: "Personal Microsoft accounts only" (this
+#     project targets PERSONAL OneDrive specifically -- never OneDrive
+#     for Business / SharePoint. "Accounts in this organizational
+#     directory only" will reject sign-in entirely once tenant_id below
+#     is "consumers".)
+#   - Platform: "Mobile and desktop applications" (enables the public-client
+#     device-code flow used by storage/auth.py) with a redirect URI such as
+#     https://login.microsoftonline.com/common/oauth2/nativeclient (device-
+#     code flow doesn't browser-redirect through it, but Azure requires one
+#     registered under this platform type).
+#   - API permissions (delegated): Microsoft Graph -> Files.ReadWrite.All.
+#     Do NOT also add offline_access/openid/profile as scopes below --
+#     see the `scopes` comment for why.
+#
+# Secrets note: client_id/tenant_id are not secret (they're safe to commit),
+# but the token cache file (token_cache path below) contains live refresh
+# tokens and must NOT be committed -- add it to .gitignore.
+
+onedrive:
+  auth:
+    client_id: "a96d6de6-8417-475f-9a55-b3e19dce9092"
+
+    # For a PERSONAL Microsoft account (Outlook.com/Hotmail/Live) this MUST
+    # be "consumers" -- NOT a tenant GUID, "organizations", or "common".
+    #   - "consumers"     -> personal Microsoft accounts ONLY (what this
+    #                        project wants: personal OneDrive, never
+    #                        OneDrive for Business/SharePoint).
+    #   - "organizations" -> work/school (Entra ID) accounts only --
+    #                        excludes personal accounts entirely.
+    #   - "common"        -> both personal AND work/school accounts; only
+    #                        use this if you deliberately want to allow
+    #                        both account types to sign in.
+    #   - a tenant GUID   -> that one Entra tenant only -- excludes
+    #                        personal accounts entirely, same as
+    #                        "organizations".
+    # This also requires the App Registration's "Supported account types"
+    # (Azure Portal -> App registrations -> your app -> Authentication) to
+    # be "Personal Microsoft accounts only" (or the "...and personal
+    # Microsoft accounts" option) -- "Accounts in this organizational
+    # directory only" will reject sign-in against "consumers" entirely.
+    tenant_id: "consumers"
+
+    # Resource scope(s) actually being requested from Microsoft Graph.
+    #
+    # Do NOT list "openid", "profile", or "offline_access" here. MSAL's
+    # PublicClientApplication adds all three to every token request
+    # automatically (that's what actually produces the ID token, refresh
+    # token, and profile claims) -- and it raises
+    # `ValueError: You cannot use any scope value that is reserved.`
+    # if you also request them yourself, since from MSAL's point of view
+    # that's redundant/ambiguous. offline_access does NOT need to be
+    # listed to get refresh-token behavior; it's already implied.
+    scopes:
+      - "Files.ReadWrite.All"
+
+  # Root folder under the user's OneDrive that all AI Tutor content lives
+  # under. storage/path_resolver.py builds every path relative to this.
+  root_folder: "AI_TUTOR"
+
+  # Where the serialized MSAL token cache (incl. refresh token) is stored
+  # on disk, so the user only authenticates once. Keep this out of source
+  # control.
+  token_cache: ".secrets/onedrive_token_cache.bin"
+
+  retry:
+    count: 3 # max attempts per Graph call (incl. the first)
+    backoff_seconds: 1.5 # base delay; doubles each retry (1.5s, 3s, 6s, ...)
+
+  timeout_seconds: 30 # per-HTTP-request timeout to Graph
+
+  # TTL for the in-process metadata cache (exists()/list_directory()
+  # results). Set to 0 to disable caching entirely.
+  cache_ttl_seconds: 30

@@ -15,6 +15,18 @@ JSON_OUTPUT_FOLDER = os.environ.get("NCERT_JSON_OUT", "./json_out")
 CACHE_FOLDER = os.environ.get("NCERT_CACHE", "./.cache")  # resumable-extraction checkpoints
 
 # --------------------------------------------------------------------------
+# Persistent storage backend (storage/ package -- OneDrive)
+# --------------------------------------------------------------------------
+# The "Board" segment of the OneDrive layout that modules/json_writer.py's
+# OneDrive-backed output functions resolve every book's folder under, i.e.
+# AI_TUTOR/<STORAGE_BOARD>/Class_<klass>/<Subject>/<Book>/. JSON_OUTPUT_FOLDER
+# above is intentionally left in place (still read by chapter_output_path()'s
+# `output_root` override path and by any caller that wants a raw-path
+# escape hatch) -- it no longer names a local directory that gets written
+# to directly.
+STORAGE_BOARD = os.environ.get("NCERT_STORAGE_BOARD", "CBSE")
+
+# --------------------------------------------------------------------------
 # Model
 # --------------------------------------------------------------------------
 VLM_MODEL_ID = os.environ.get("NCERT_VLM_MODEL", "Qwen/Qwen2.5-VL-3B-Instruct")
