@@ -79,6 +79,7 @@ from modules.pdf_parser import make_id, slugify, auto_detect_subject, auto_detec
 from compiler.registries import create_registry_manager, populate_registries
 from compiler.enrichment import enrich_registries
 from compiler.normalization import normalize_registries
+from compiler.references import resolve_references
 from compiler import state as compiler_state
 
 logging.basicConfig(
@@ -801,6 +802,30 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # via compiler.get_current_registry_manager() is always the fully
     # enriched-and-normalized one.
     normalize_registries(registry_manager)
+    # ---- Phase B2: deterministic cross-reference resolution -------------
+    # Resolves Definition/Glossary Entry -> Concept id links (and the
+    # matching reverse definition_ids/glossary_ids/... lists on each
+    # Concept record) using ONLY canonical ids, B1c's already-computed
+    # normalized lookup keys/aliases, and deterministic registry lookups
+    # -- see compiler/references.py's module docstring for the full
+    # resolution strategy, why the other ten registries' concept_ids
+    # stay [] today (no deterministic source field exists for them yet),
+    # and why Topic -> Concept resolution (already correctly resolved in
+    # the Phase A topic-construction loop above, into `concepts`/
+    # `concept_names`) is verified here read-only rather than re-written.
+    # Same "same dict objects, additive-only mutation" integration
+    # pattern as B1b's enrich_registries() / B1c's normalize_registries()
+    # directly above -- a third, independent additive pass over the same
+    # items, not a redesign of either. Runs after normalize_registries()
+    # (so resolution can rely on canonical_lookup_key/canonical_aliases
+    # already being present) and before set_current_registry_manager()
+    # so the manager any later phase reads via
+    # compiler.get_current_registry_manager() is always the fully
+    # enriched-normalized-and-resolved one. `topics_out` is passed only
+    # for the read-only Topic-vs-Concept parity check (see
+    # compiler/references.py's verify_topic_references) -- topic dicts
+    # themselves are never mutated by this call.
+    reference_resolution_stats = resolve_references(registry_manager, topics=topics_out)
     compiler_state.set_current_registry_manager(registry_manager)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
@@ -818,6 +843,8 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("chapter '%s': registry population — %s",
                      structure.chapter_title, registry_manager.statistics())
+        logger.debug("chapter '%s': reference resolution — %s",
+                     structure.chapter_title, reference_resolution_stats)
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,

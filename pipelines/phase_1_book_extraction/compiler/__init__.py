@@ -97,6 +97,14 @@ from .normalization import (
     normalize_registry,
     normalize_registries,
 )
+from .references import (
+    REFERENCE_RESOLUTION_VERSION,
+    REFERENCE_FIELDS,
+    resolve_registries,
+    resolve_topic_concept_ids,
+    verify_topic_references,
+    resolve_references,
+)
 
 __all__ = [
     "CanonicalRegistry",
@@ -143,4 +151,10 @@ __all__ = [
     "normalize_item",
     "normalize_registry",
     "normalize_registries",
+    "REFERENCE_RESOLUTION_VERSION",
+    "REFERENCE_FIELDS",
+    "resolve_registries",
+    "resolve_topic_concept_ids",
+    "verify_topic_references",
+    "resolve_references",
 ]
