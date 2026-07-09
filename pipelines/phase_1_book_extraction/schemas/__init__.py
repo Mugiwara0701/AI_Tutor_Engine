@@ -6,3 +6,10 @@ from .chapter_schema import (  # noqa: F401
     SemanticIndexEntry, AIMetadata, GenerationMetadata, QualityScores,
     ExtractionLogs,
 )
+
+# A1.1 -- schema-layer-only addition. Not yet used by any existing schema
+# (no migration performed); exported here so it's importable as
+# `schemas.CanonicalObjectBase` ahead of later migration work.
+from .canonical_base import (  # noqa: F401
+    CanonicalObjectBase, Provenance, CreationMetadata,
+)

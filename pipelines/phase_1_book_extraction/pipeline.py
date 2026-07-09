@@ -74,6 +74,7 @@ from modules import semantic_processor, graph_builder, json_writer, vlm_inferenc
 from modules import stage_a_geometry, stage_b_classify, stage_c_priority, stage_d_extraction, stage_e_validation
 from modules import kg_readiness
 from modules import equation_intent
+from modules import canonical
 from modules.pdf_parser import make_id, slugify, auto_detect_subject, auto_detect_class
 
 logging.basicConfig(
@@ -177,6 +178,17 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     structure = pdf_parser.parse_chapter_pdf(pdf_path, book_ctx, chapter_order_fallback)
     structure.book_title = book_ctx.book_title  # attached for json_writer
     book_slug = slugify(book_ctx.book_title)
+    # A3 FIX (identity consistency): canonical_namespace / chapter_reference
+    # are deliberately NOT computed here anymore. They must be derived from
+    # the FINAL chapter title -- i.e. only after script-mismatch recovery
+    # below has had a chance to correct structure.chapter_title -- because
+    # every make_id()/make_urn() call further down in this function always
+    # reads structure.chapter_title live (post-recovery). Freezing
+    # canonical_namespace/chapter_reference off the pre-recovery title here
+    # (as before) meant ids/urns could end up in a namespace/
+    # chapter_reference that didn't match the title they were actually keyed
+    # from whenever recovery changed the title. See the single computation
+    # site below, right after script-mismatch recovery runs.
 
     # Every VLM prompt for this chapter should preserve structure.language
     # instead of assuming English (see modules/semantic_processor.py).
@@ -225,6 +237,20 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         finally:
             _doc_for_recovery.close()
 
+    # A3 FIX (identity consistency): compute the shared urn namespace /
+    # chapter_reference for every canonical object built in this chapter
+    # HERE -- only now that structure.chapter_title is final (script-mismatch
+    # recovery above is the last thing that can still change it) -- rather
+    # than before recovery ran. Every make_id()/make_urn() call from this
+    # point on in this function reads structure.chapter_title live, so this
+    # is now guaranteed to be the exact same title every id/urn/
+    # chapter_reference for this chapter is derived from. Deterministic:
+    # slugify()/make_id()/make_urn() are pure functions of their string
+    # inputs, so this introduces no randomness.
+    chapter_slug = slugify(structure.chapter_title)
+    canonical_namespace = f"{book_slug}:{chapter_slug}"
+    chapter_reference = canonical_namespace
+
     # ---- deterministic layout detection (unchanged: purely geometric --
     # WHERE the visual/equation-line primitives are) ----
     layout = layout_detector.run_layout_detection(pdf_path)
@@ -240,8 +266,26 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     notes_raw = content_blocks.detect_notes(structure.lines, structure.repeated, structure.chapter_title)
     examples_raw = content_blocks.detect_examples(structure.lines, structure.repeated, structure.chapter_title)
     definitions = content_blocks.detect_definition_terms(structure.lines, structure.repeated, topic_lookup)
-    for d in definitions:
+    for idx, d in enumerate(definitions):
         d.pop("_body_for_semantic", None)
+        # A1/A3: Definition previously had no id/urn at all -- content_blocks
+        # only ever emitted {term, page, topic, bbox}. Deterministic id/urn
+        # generated here (term + page, the only stable content key
+        # available at this deterministic-only stage) rather than inside
+        # content_blocks.py, so Stage-labeled deterministic-extraction logic
+        # (content_blocks.detect_definition_terms itself) stays untouched
+        # per the roadmap's "do not redesign existing deterministic
+        # extraction logic".
+        d.update(canonical.canonical_fields(
+            object_id=make_id(structure.chapter_title, "definition", d["term"], str(d.get("page")), str(idx)),
+            object_type="definition", namespace=canonical_namespace,
+            urn_parts=["definition", d["term"], str(d.get("page"))],
+            subject=structure.subject, chapter_reference=chapter_reference,
+            topic_ids=[d["topic"]] if d.get("topic") else [],
+            source_page=d.get("page"), bounding_box=d.get("bbox"),
+            extraction_stage="content_blocks.detect_definition_terms",
+            extraction_method="deterministic", confidence=0.6,
+        ))
 
     doc = fitz.open(pdf_path)
 
@@ -260,7 +304,6 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # stable id + urn and a `topics` list of every topic that mentions it.
     concept_registry: Dict[str, Dict[str, Any]] = {}
     glossary: List[Dict[str, Any]] = []
-    chapter_slug = slugify(structure.chapter_title)
     for t in structure.topics:
         sem = semantic_processor.process_topic_semantics(doc, t) if use_vlm else {}
         concepts_list = sem.get("concepts", []) or []
@@ -273,9 +316,21 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             key = name.lower()
             existing = concept_registry.get(key)
             if existing is None:
+                # A1/A2/A3: id/urn generated the same way as before (same
+                # inputs, same make_id/make_urn -- see modules/pdf_parser.py
+                # -- so pre-Phase-A urns for existing concepts are
+                # byte-for-byte unchanged); everything else here is the new
+                # canonical envelope (A1) merged in via canonical_fields().
                 concept_registry[key] = {
-                    "id": make_id(structure.chapter_title, "concept", name),
-                    "urn": f"urn:ncert-kg:{book_slug}:{chapter_slug}:concept:{slugify(name)}",
+                    **canonical.canonical_fields(
+                        object_id=make_id(structure.chapter_title, "concept", name),
+                        object_type="concept", namespace=canonical_namespace,
+                        urn_parts=["concept", name],
+                        subject=structure.subject, chapter_reference=chapter_reference,
+                        topic_ids=[t.id], source_page=t.page_start, source_heading=t.title,
+                        extraction_stage="semantic_processor.process_topic_semantics",
+                        extraction_method="vlm" if use_vlm else "deterministic", confidence=0.5,
+                    ),
                     "name": name, "aliases": [], "importance": "medium",
                     "topic": t.id, "topics": [t.id], "page": t.page_start,
                     "related_concepts": [],
@@ -283,14 +338,36 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             elif t.id not in existing["topics"]:
                 existing["topics"].append(t.id)
         for term in sem.get("glossary_terms", []) or []:
-            glossary.append({"term": str(term), "topic": t.id, "page": t.page_start})
+            term_s = str(term)
+            glossary.append({
+                **canonical.canonical_fields(
+                    object_id=make_id(structure.chapter_title, "glossary", term_s, t.id),
+                    object_type="glossary_entry", namespace=canonical_namespace,
+                    urn_parts=["glossary", term_s],
+                    subject=structure.subject, chapter_reference=chapter_reference,
+                    topic_ids=[t.id], source_page=t.page_start, source_heading=t.title,
+                    extraction_stage="semantic_processor.process_topic_semantics",
+                    extraction_method="vlm" if use_vlm else "deterministic", confidence=0.5,
+                ),
+                "term": term_s, "topic": t.id, "page": t.page_start,
+            })
+
+        # A4: canonical concept references. `this_topic_concept_names` are
+        # display names (kept as derived metadata); `this_topic_concept_ids`
+        # -- resolvable in-loop since concept_registry already has an entry
+        # for every name in this_topic_concept_names by this point -- is the
+        # canonical reference stored in TopicNode.concepts.
+        this_topic_concept_ids = [
+            concept_registry[n.lower()]["id"] for n in this_topic_concept_names if n.lower() in concept_registry
+        ]
 
         topics_out.append({
             "id": t.id, "title": t.title, "numbering": t.numbering, "level": t.level,
             "parent": t.parent, "children": [], "page_start": t.page_start, "page_end": t.page_end,
             "bbox": {"x0": t.bbox[0], "y0": t.bbox[1], "x1": t.bbox[2], "y1": t.bbox[3], "page": t.page_start},
             "reading_order": t.reading_order, "keywords": [],
-            "concepts": this_topic_concept_names,
+            "concepts": this_topic_concept_ids,
+            "concept_names": this_topic_concept_names,
             "definitions": [d["term"] for d in definitions if d.get("topic") == t.id],
             "examples": [], "activities": [], "figures": [], "tables": [], "equations": [],
             "diagrams": [], "charts": [], "graphs": [], "maps": [], "timelines": [],
@@ -315,6 +392,41 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     for i, tp in enumerate(topics_out):
         tp["next_topics"] = [topics_out[i + 1]["title"]] if i + 1 < len(topics_out) else []
 
+    # A4: chapter-wide concept name -> concept id lookup, built once the
+    # registry is final, for every remaining object type below that may
+    # reference concepts by name (figures/tables/diagrams/activities/...).
+    concept_name_to_id: Dict[str, str] = {name: rec["id"] for name, rec in concept_registry.items()}
+
+    def _attach_canonical(obj: Dict[str, Any], *, object_type: str, urn_parts: List[str],
+                           concept_names: Optional[List[str]] = None, topic_ids: Optional[List[str]] = None,
+                           source_page: Optional[int] = None, source_block_id: Optional[str] = None,
+                           source_heading: Optional[str] = None, extraction_stage: Optional[str] = None,
+                           extraction_method: str = "deterministic",
+                           confidence: Optional[float] = None) -> Dict[str, Any]:
+        """A1/A2/A4 assembly-time helper (closes over this chapter's
+        book_slug/chapter_slug/structure/chapter_reference/
+        concept_name_to_id): attaches the common canonical envelope to an
+        already-built object dict (`obj` must already have "id" -- this
+        never mints a new one, see canonical.canonical_fields) and resolves
+        `concept_names` to canonical concept_ids. Used below for every
+        object type not already handled inline (concepts/topics/glossary
+        above build their own envelope directly since concept_ids aren't
+        yet resolvable from a shared map at that point in the loop)."""
+        cids = canonical.resolve_concept_ids(concept_names or [], concept_name_to_id)
+        obj.update(canonical.canonical_fields(
+            object_id=obj["id"], object_type=object_type, namespace=canonical_namespace,
+            urn_parts=urn_parts, subject=structure.subject, chapter_reference=chapter_reference,
+            topic_ids=topic_ids or [], concept_ids=cids,
+            source_page=source_page if source_page is not None else obj.get("page"),
+            source_block_id=source_block_id, source_heading=source_heading,
+            bounding_box=obj.get("bbox"), extraction_stage=extraction_stage,
+            extraction_method=extraction_method,
+            confidence=confidence if confidence is not None else obj.get("confidence", 0.5),
+        ))
+        if cids:
+            obj["concept_ids"] = cids
+        return obj
+
     # ---- figures / tables / equations / diagrams / charts / graphs / maps
     # / timelines -- restored. Figures/tables/diagrams stay deterministic
     # -only (matches original behavior, and Stage D's VisualFamilyRecognizer
@@ -323,6 +435,24 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     figures, tables, equations = [], [], []
     diagrams, charts, graphs_, maps_, timelines = [], [], [], [], []
 
+    # A4 review (Fix 3, Phase A finalization): Figure/Table/Diagram.concept_ids
+    # are intentionally left as [] below (via _attach_canonical's default
+    # concept_names=None -> resolve_concept_ids([], ...) -> []), same as
+    # before this review. Reviewed whether any existing deterministic
+    # pipeline output could populate them: layout_detector's figure/table/
+    # diagram regions only carry page/bbox/title/caption -- there is no
+    # deterministic (non-guessed) link from a region to specific concept
+    # NAMES the way content_blocks.detect_definition_terms or
+    # semantic_processor.process_topic_semantics's glossary/concepts output
+    # give definitions/glossary entries a name to resolve against
+    # concept_name_to_id. The only way to populate concept_ids today would be
+    # to guess from region.caption/region.title text (string/substring
+    # matching against concept_registry names) or the enclosing topic's
+    # concept list by page-range containment -- both are heuristics, not
+    # existing deterministic information, and the roadmap explicitly rules
+    # out inventing concept links or heuristic guessing here. Richer visual
+    # concept linking (e.g. VLM-identified concepts depicted in a figure/
+    # table/diagram) is therefore intentionally deferred to Phase B.
     for idx, region in enumerate(layout["figures"]):
         figures.append({
             "id": _region_to_id("figure", structure.chapter_title, region, idx), "page": region.page,
@@ -335,6 +465,10 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             "importance": "medium", "difficulty": "medium",
             "animation_candidate": False, "confidence": 0.5,
         })
+        _attach_canonical(figures[-1], object_type="figure",
+                           urn_parts=["figure", str(region.page), str(idx)],
+                           source_page=region.page,
+                           extraction_stage="layout_detector.detect_figures", confidence=0.5)
 
     for idx, region in enumerate(layout["diagrams"]):
         diagrams.append({
@@ -347,6 +481,10 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             "importance": "medium", "difficulty": "medium",
             "animation_candidate": False, "confidence": 0.5,
         })
+        _attach_canonical(diagrams[-1], object_type="diagram",
+                           urn_parts=["diagram", str(region.page), str(idx)],
+                           source_page=region.page,
+                           extraction_stage="layout_detector.detect_diagrams", confidence=0.5)
 
     for idx, region in enumerate(layout["tables"]):
         extra = region.extra or {}
@@ -360,6 +498,10 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             "semantic_description": "", "educational_purpose": "", "concepts": [],
             "confidence": 0.5,
         })
+        _attach_canonical(tables[-1], object_type="table",
+                           urn_parts=["table", str(region.page), str(idx)],
+                           source_page=region.page,
+                           extraction_stage="layout_detector.detect_tables", confidence=0.5)
 
     # ---- Stage A: Geometry Segmentation ------------------------------------
     # WHERE are the blocks? Consumes structure.lines (text layer) + layout's
@@ -460,6 +602,12 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             eq_record["vlm_raw_output"] = sem.get("_vlm_raw_output", "")
             eq_record["vlm_validation_errors"] = sem.get("_vlm_validation_errors", [])
         equations.append(eq_record)
+        _attach_canonical(eq_record, object_type="equation",
+                           urn_parts=["equation", str(region.page), str(idx)],
+                           source_page=region.page,
+                           extraction_stage="stage_a_geometry+equation_intent",
+                           extraction_method="vlm" if run_vlm else "deterministic",
+                           confidence=eq_record["confidence"])
 
     # ---- content blocks -> final records -- restored ----
     def _finalize_blocks(raw_list):
@@ -476,6 +624,25 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     notes = _finalize_blocks(notes_raw)
     examples = _finalize_blocks(examples_raw)
 
+    for a in activities:
+        _attach_canonical(a, object_type="activity",
+                           urn_parts=["activity", a.get("activity_type", ""), str(a.get("page"))],
+                           extraction_stage="content_blocks.detect_activities", confidence=0.6)
+    for bx in boxes:
+        _attach_canonical(bx, object_type="box",
+                           urn_parts=["box", bx.get("box_type", ""), str(bx.get("page"))],
+                           extraction_stage="content_blocks.detect_boxes", confidence=0.6)
+    for w in warnings_list:
+        _attach_canonical(w, object_type="warning",
+                           urn_parts=["warning", w.get("warning_type", ""), str(w.get("page"))],
+                           extraction_stage="content_blocks.detect_warnings", confidence=0.6)
+    for n in notes:
+        _attach_canonical(n, object_type="note", urn_parts=["note", str(n.get("page"))],
+                           extraction_stage="content_blocks.detect_notes", confidence=0.6)
+    for ex in examples:
+        _attach_canonical(ex, object_type="example", urn_parts=["example", str(ex.get("page"))],
+                           extraction_stage="content_blocks.detect_examples", confidence=0.6)
+
     # ---- graphs + semantic index -- restored ----
     learning_graph = graph_builder.build_learning_graph(topics_out)
     concept_graph = graph_builder.build_concept_graph(all_concepts)
@@ -488,6 +655,17 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         ai_metadata = semantic_processor.process_chapter_ai_metadata(
             [t["title"] for t in topics_out], len(figures), len(tables), len(equations))
         generation_metadata = semantic_processor.process_generation_metadata(structure.chapter_title, ai_metadata)
+        # A4: ai_metadata's important_concepts / likely_confusing_concepts
+        # are VLM-returned display names (no VLM prompt change needed/made
+        # here -- see IMPLEMENTATION RULES #2, do not introduce unnecessary
+        # VLM calls). The *_ids lists are the added canonical reference,
+        # resolved deterministically against this chapter's concept
+        # registry; names are left in place as the derived, human-readable
+        # metadata per A4.
+        ai_metadata["important_concept_ids"] = canonical.resolve_concept_ids(
+            ai_metadata.get("important_concepts", []) or [], concept_name_to_id)
+        ai_metadata["likely_confusing_concept_ids"] = canonical.resolve_concept_ids(
+            ai_metadata.get("likely_confusing_concepts", []) or [], concept_name_to_id)
     else:
         ai_metadata, generation_metadata = {}, {}
 

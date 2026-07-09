@@ -32,6 +32,96 @@ class BBox(BaseModel):
     page: int = 0
 
 
+# --------------------------------------------------------------------------
+# Phase A — Foundation Layer (A1 Common Canonical Base Model, A2 Unified
+# Provenance Model). See modules/pdf_parser.make_id / make_urn for the A3
+# identity strategy these two models assume (deterministic id/urn, never
+# random), and modules/canonical.py for the assembly-time helper that
+# builds these shapes so pipeline.py doesn't repeat the same dict literal
+# per object type.
+# --------------------------------------------------------------------------
+class Provenance(BaseModel):
+    """A2 — Unified Provenance Model. Every canonical educational object
+    exposes exactly this shape (via CanonicalObjectBase.provenance)
+    instead of each object type inventing its own ad-hoc subset of "where
+    did this come from" fields. All fields are optional/defaulted because
+    not every object type has a meaningful value for every field (e.g. a
+    content_blocks.py-detected Activity has no `recognizer` name; an
+    object built before Stage A runs has no `source_block_id` yet).
+    `extraction_method` records whether the value came from deterministic
+    code, the VLM, or both, independent of `recognizer`/`extraction_stage`
+    (which record *where* in the pipeline, not *how*)."""
+    model_config = ConfigDict(extra="allow")
+
+    source_page: Optional[int] = None
+    source_block_id: Optional[str] = None
+    source_heading: Optional[str] = None
+    section: Optional[str] = None
+    bounding_box: Optional[BBox] = None
+    extraction_stage: Optional[str] = None
+    recognizer: Optional[str] = None
+    evidence_span: Optional[str] = None
+    extraction_method: str = "deterministic"  # "deterministic" | "vlm" | "hybrid"
+    confidence: float = 0.0
+    timestamp: Optional[str] = None
+
+
+class CreationMetadata(Loose):
+    """Part of A1's base model. Loose (extra="allow") because compiler-run
+    metadata is expected to grow (e.g. multi-board/multilingual run flags)
+    without every historical object needing a new required field."""
+    created_at: Optional[str] = None
+    compiler_version: str = "1.0.0"
+    generator: Optional[str] = None
+
+
+class CanonicalObjectBase(BaseModel):
+    """A1 — Common Canonical Base Model. Every canonical educational
+    object (Concept, Definition, Formula/Equation, Figure, Table, Diagram,
+    Chart, Graph, Box, Note, Warning, Example, Activity, Glossary Entry,
+    ...) inherits this instead of redeclaring the same identity/
+    provenance/lineage fields per class -- "avoid duplication across
+    schema classes; use inheritance rather than copy-paste fields" (Phase
+    A roadmap, A1). Concrete subclasses below add only the fields specific
+    to their own educational meaning (e.g. Figure.caption, Equation.latex).
+
+    IDENTITY STRATEGY (A3, see modules/pdf_parser.py for the generators):
+    `id` and `urn` are both deterministic -- derived from stable inputs
+    (chapter title/slug, object kind, and either a content-derived key or
+    a stable positional index), never a random UUID/timestamp -- so
+    recompiling the same chapter content reproduces the same id/urn.
+    `id` is the short, hash-suffixed local identifier (make_id); `urn` is
+    the globally-unique, hierarchical reference (make_urn), stable across
+    recompilations unless the underlying educational content's meaning
+    actually changes (i.e. unless the inputs slugify() differently).
+
+    NOT every field is populated by every producer yet -- Stage A-E's own
+    block/educational-object output (AnnotatedBlock / EducationalObject
+    below) is explicitly OUT of scope for Phase A (the roadmap says do not
+    redesign Stage A-E) and keeps its existing Loose shape unchanged.
+    """
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    id: str
+    urn: Optional[str] = None
+    object_type: str = "educational_object"
+    # Fallback only -- modules/canonical.py::canonical_fields() always sets
+    # this explicitly from config.SCHEMA_VERSION on every real object it
+    # builds. Kept in sync with that constant (see Fix 2 / MIGRATIONS.md)
+    # so a model constructed without canonical_fields() doesn't report a
+    # stale version.
+    schema_version: str = "2.0.0"
+    subject: Optional[str] = None
+    chapter_reference: Optional[str] = None
+    topic_ids: List[str] = Field(default_factory=list)
+    concept_ids: List[str] = Field(default_factory=list)
+    provenance: Provenance = Field(default_factory=Provenance)
+    extraction_confidence: float = 0.0
+    validation_status: str = "unvalidated"
+    duplicate_lineage: List[Dict[str, Any]] = Field(default_factory=list)
+    creation_metadata: CreationMetadata = Field(default_factory=CreationMetadata)
+
+
 class ExtractionMetadata(Loose):
     pipeline_version: str = "1.0.0"
     extracted_at: Optional[str] = None
@@ -90,7 +180,24 @@ class TopicNode(BaseModel):
     bbox: Optional[BBox] = None
     reading_order: int = 0
     keywords: List[str] = Field(default_factory=list)
+    # A4 -- canonical concept references: `concepts` now holds concept IDs
+    # (the canonical reference), never bare names. `concept_names` is the
+    # derived, human-readable counterpart -- useful for readability, but
+    # NOT the reference other objects should link against. Pre-Phase-A
+    # JSON had `concepts` holding names; this is a deliberate, documented
+    # meaning change of that field's contents (not its shape -- still
+    # List[str]) per roadmap A4 ("the canonical reference should always
+    # be the concept ID").
+    #
+    # SCHEMA VERSIONING (Fix 2, Phase A finalization): this is a semantic
+    # (MAJOR) schema change per config.SCHEMA_VERSION's versioning policy --
+    # same field name/shape, but a consumer reading old JSON's `concepts` as
+    # names would now silently get ids instead. schema_version was bumped
+    # 1.0.0 -> 2.0.0 for exactly this reason. See MIGRATIONS.md at the repo
+    # root for the full migration note (how to read display names now, how
+    # to cross-reference against the top-level `concepts[]` array, etc.).
     concepts: List[str] = Field(default_factory=list)
+    concept_names: List[str] = Field(default_factory=list)
     definitions: List[str] = Field(default_factory=list)
     examples: List[str] = Field(default_factory=list)
     activities: List[str] = Field(default_factory=list)
@@ -114,15 +221,14 @@ class TopicNode(BaseModel):
     confidence: float = 0.0
 
 
-class Concept(BaseModel):
+class Concept(CanonicalObjectBase):
     """Canonical Concept Registry entry. One record per distinct concept
     name in the chapter (deduped case-insensitively at build time -- see
     pipeline.py's concept_registry) so downstream phases can treat id/urn
     as a stable reference regardless of how many topics mention the
     concept. `topic` (singular) is kept only for backward compatibility
     with existing consumers; `topics` is the canonical, complete list."""
-    id: str
-    urn: Optional[str] = None
+    object_type: str = "concept"
     name: str
     aliases: List[str] = Field(default_factory=list)
     importance: str = "medium"
@@ -132,14 +238,16 @@ class Concept(BaseModel):
     related_concepts: List[str] = Field(default_factory=list)
 
 
-class Definition(BaseModel):
+class Definition(CanonicalObjectBase):
+    object_type: str = "definition"
     term: str
     page: Optional[int] = None
     bbox: Optional[BBox] = None
     topic: Optional[str] = None
 
 
-class Example(BaseModel):
+class Example(CanonicalObjectBase):
+    object_type: str = "example"
     title: str
     page: Optional[int] = None
     bbox: Optional[BBox] = None
@@ -147,8 +255,8 @@ class Example(BaseModel):
     semantic_description: str = ""
 
 
-class Activity(BaseModel):
-    id: str
+class Activity(CanonicalObjectBase):
+    object_type: str = "activity"
     activity_type: str  # Activity / Think / Observe / Try / Discuss / Experiment
     title: str
     page: Optional[int] = None
@@ -156,8 +264,8 @@ class Activity(BaseModel):
     semantic_description: str = ""
 
 
-class Figure(BaseModel):
-    id: str
+class Figure(CanonicalObjectBase):
+    object_type: str = "figure"
     page: Optional[int] = None
     bbox: Optional[BBox] = None
     title: str = ""
@@ -165,6 +273,11 @@ class Figure(BaseModel):
     figure_type: str = "figure"
     semantic_description: str = ""
     educational_purpose: str = ""
+    # A4: kept for backward compatibility (previously the only concept
+    # link this object had, and never actually populated by pipeline.py).
+    # `concept_ids` (inherited from CanonicalObjectBase) is now the
+    # canonical reference; `concepts` is treated as the human-readable
+    # derived list going forward, same spirit as TopicNode.concept_names.
     concepts: List[str] = Field(default_factory=list)
     related_topics: List[str] = Field(default_factory=list)
     importance: str = "medium"
@@ -173,8 +286,8 @@ class Figure(BaseModel):
     confidence: float = 0.0
 
 
-class Table(BaseModel):
-    id: str
+class Table(CanonicalObjectBase):
+    object_type: str = "table"
     title: str = ""
     page: Optional[int] = None
     bbox: Optional[BBox] = None
@@ -183,12 +296,12 @@ class Table(BaseModel):
     table_type: str = "data_table"
     semantic_description: str = ""
     educational_purpose: str = ""
-    concepts: List[str] = Field(default_factory=list)
+    concepts: List[str] = Field(default_factory=list)  # see Figure.concepts note
     confidence: float = 0.0
 
 
-class Equation(BaseModel):
-    id: str
+class Equation(CanonicalObjectBase):
+    object_type: str = "equation"
     page: Optional[int] = None
     bbox: Optional[BBox] = None
     latex: str = ""
@@ -202,27 +315,27 @@ class Diagram(Figure):
     """Diagrams/charts/graphs/maps/timelines share the figure-like shape;
     kept as distinct subclasses so json_writer can still emit them under
     their own top-level schema keys per the spec."""
-    pass
+    object_type: str = "diagram"
 
 
 class Chart(Figure):
-    pass
+    object_type: str = "chart"
 
 
 class Graph(Figure):
-    pass
+    object_type: str = "graph"
 
 
 class Map(Figure):
-    pass
+    object_type: str = "map"
 
 
 class Timeline(Figure):
-    pass
+    object_type: str = "timeline"
 
 
-class Box(BaseModel):
-    id: str
+class Box(CanonicalObjectBase):
+    object_type: str = "box"
     box_type: str  # Did You Know / Important / Note / Remember / Case Study / Box
     title: str = ""
     page: Optional[int] = None
@@ -230,19 +343,32 @@ class Box(BaseModel):
     semantic_description: str = ""
 
 
-class NoteItem(BaseModel):
-    id: str
+class NoteItem(CanonicalObjectBase):
+    object_type: str = "note"
     page: Optional[int] = None
     bbox: Optional[BBox] = None
     semantic_description: str = ""
 
 
-class WarningItem(BaseModel):
-    id: str
+class WarningItem(CanonicalObjectBase):
+    object_type: str = "warning"
     warning_type: str  # Warning / Caution / Remember / Important
     page: Optional[int] = None
     bbox: Optional[BBox] = None
     semantic_description: str = ""
+
+
+class GlossaryEntry(CanonicalObjectBase):
+    """A1/A5: glossary entries were previously plain free-form dicts
+    (`glossary: List[Dict[str, Any]]` on ChapterJSON below) with no id/urn
+    at all. Promoted to a canonical object like every other Glossary Entry
+    example in the roadmap. Stores only the term, never definition text,
+    per the existing copyright guardrail (see content_blocks.py /
+    README.md) -- unchanged behavior, just now identity-bearing."""
+    object_type: str = "glossary_entry"
+    term: str
+    topic: Optional[str] = None
+    page: Optional[int] = None
 
 
 class GraphEdge(BaseModel):
@@ -378,7 +504,11 @@ class ChapterJSON(BaseModel):
     additions."""
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    schema_version: str = "1.0.0"
+    # Fallback only -- json_writer.py always sets this explicitly from
+    # config.SCHEMA_VERSION when assembling the real document. Kept in sync
+    # with that constant (see Fix 2 / MIGRATIONS.md: 1.0.0 -> 2.0.0 for the
+    # TopicNode.concepts semantic change).
+    schema_version: str = "2.0.0"
     extraction_metadata: ExtractionMetadata = Field(default_factory=ExtractionMetadata)
     document: DocumentInfo = Field(default_factory=DocumentInfo)
     chapter_metadata: ChapterMetadata = Field(default_factory=ChapterMetadata)
@@ -387,7 +517,7 @@ class ChapterJSON(BaseModel):
     topic_tree: List[Dict[str, Any]] = Field(default_factory=list)
     topics: List[TopicNode] = Field(default_factory=list)
     concepts: List[Concept] = Field(default_factory=list)
-    glossary: List[Dict[str, Any]] = Field(default_factory=list)
+    glossary: List[GlossaryEntry] = Field(default_factory=list)
     definitions: List[Definition] = Field(default_factory=list)
     examples: List[Example] = Field(default_factory=list)
     activities: List[Activity] = Field(default_factory=list)

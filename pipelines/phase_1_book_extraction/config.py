@@ -81,4 +81,22 @@ DEFAULT_CLASS = os.environ.get("NCERT_DEFAULT_CLASS")      # e.g. "12"
 # full list of supported codes.
 DEFAULT_LANGUAGE = os.environ.get("NCERT_DEFAULT_LANGUAGE")
 
-SCHEMA_VERSION = "1.0.0"
+# Schema versioning policy: MAJOR.MINOR.PATCH (SemVer), applied to the
+# *meaning/compatibility* of the exported Chapter JSON, not to code releases:
+#   MAJOR — a field's meaning, type, or how a consumer must interpret it
+#           changes even though its name/JSON position doesn't (a consumer
+#           written against the old MAJOR version will silently misread the
+#           new data rather than erroring) -- or a field is renamed/removed.
+#   MINOR — purely additive, backward-compatible changes (new optional
+#           field, new object type) that old consumers can safely ignore.
+#   PATCH — non-schema fixes (bug fixes, doc/comment changes) that don't
+#           change the exported JSON's shape or meaning at all.
+#
+# 1.0.0 -> 2.0.0 (Phase A): TopicNode.concepts changed meaning from a list of
+# human-readable concept NAMES to a list of canonical concept IDs (same
+# field name, same List[str] shape -- this is exactly the "silent
+# misinterpretation" case MAJOR exists for, since old consumers reading
+# `concepts` as display names would now get opaque ids instead). See
+# MIGRATIONS.md for the full migration note and schemas/chapter_schema.py's
+# TopicNode.concepts docstring for the field-level detail.
+SCHEMA_VERSION = "2.0.0"

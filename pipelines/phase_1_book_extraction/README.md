@@ -81,6 +81,15 @@ Each chapter JSON contains exactly the sections listed in the task spec
 `schemas/chapter_schema.py` before being written. No images, crops, or
 page thumbnails are ever saved — only bbox + semantic metadata, per spec.
 
+## Schema versioning
+
+`schema_version` (in `config.SCHEMA_VERSION`) follows MAJOR.MINOR.PATCH,
+applied to the exported JSON's field meaning/compatibility (not code
+releases) — see the policy comment above `config.SCHEMA_VERSION` for exact
+rules on what bumps which component. Every version bump is documented in
+[`MIGRATIONS.md`](./MIGRATIONS.md), including how existing consumers should
+adapt.
+
 ## Notes / known limitations of this pass
 
 - Table detection relies on PyMuPDF's `find_tables()`; a caption-only

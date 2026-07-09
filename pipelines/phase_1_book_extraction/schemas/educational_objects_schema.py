@@ -40,7 +40,11 @@ class EducationalObjectsDocument(BaseModel):
     built entirely in Phase 2 from this document's `educational_objects`."""
     model_config = ConfigDict(populate_by_name=True)
 
-    schema_version: str = "1.0.0"
+    # Fallback only -- kept in sync with config.SCHEMA_VERSION (Fix 2 /
+    # MIGRATIONS.md). This document is orphaned/unused by pipeline.py (see
+    # module docstring above) but the literal is updated anyway so it
+    # doesn't silently drift and mislead anyone who does use it directly.
+    schema_version: str = "2.0.0"
     phase: str = "phase_1_educational_extraction"
     extraction_metadata: ExtractionMetadata = Field(default_factory=ExtractionMetadata)
     document: DocumentInfo = Field(default_factory=DocumentInfo)

@@ -90,12 +90,20 @@ def build_semantic_index(concepts: List[Dict[str, Any]], topics: List[Dict[str, 
     index = []
     for c in concepts:
         name_lower = c["name"].lower()
-        matched_topics = [t["id"] for t in topics if name_lower in [k.lower() for k in t.get("concepts", [])]
+        # A4: topics/figures/tables now carry canonical concept_ids (see
+        # pipeline.py + schemas/chapter_schema.py) rather than concept
+        # names in their `concepts` field, so matching is an exact id
+        # membership check, not a name/substring heuristic, for the
+        # objects that have adopted the canonical reference. The topic
+        # title substring check and the definition/equation text-search
+        # heuristics are unaffected -- those never held concept names to
+        # begin with.
+        matched_topics = [t["id"] for t in topics if c["id"] in t.get("concepts", [])
                            or name_lower in t.get("title", "").lower()]
         matched_defs = [d["term"] for d in definitions if name_lower in d["term"].lower()
                          or d["term"].lower() in name_lower]
-        matched_figs = [f["id"] for f in figures if name_lower in [k.lower() for k in f.get("concepts", [])]]
-        matched_tabs = [t["id"] for t in tables if name_lower in [k.lower() for k in t.get("concepts", [])]]
+        matched_figs = [f["id"] for f in figures if c["id"] in f.get("concept_ids", [])]
+        matched_tabs = [t["id"] for t in tables if c["id"] in t.get("concept_ids", [])]
         matched_eqs = [e["id"] for e in equations if name_lower in e.get("semantic_meaning", "").lower()]
         index.append({
             "concept": c["name"],

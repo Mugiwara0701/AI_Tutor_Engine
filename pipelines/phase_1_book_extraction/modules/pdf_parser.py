@@ -335,9 +335,59 @@ def slugify(*parts: str) -> str:
 
 
 def make_id(*parts: str) -> str:
+    """A3 — Stable ID infrastructure. Deterministic by construction: the id
+    is purely a function of `parts` (slugify() -> sha1 hex digest,
+    truncated), with no random/UUID/timestamp component anywhere in the
+    path. Re-running the compiler on unchanged input parts (chapter title,
+    object kind, page/position) always reproduces the exact same id --
+    that's what makes it safe to use as a stable cross-run reference. If a
+    part changes (e.g. a heading gets corrected via script-mismatch
+    recovery), the id deliberately changes too, since the identity is tied
+    to that content, not to a slot/index that would silently alias two
+    different things across runs.
+    """
     base = slugify(*parts)
     h = hashlib.sha1(base.encode()).hexdigest()[:6]
     return f"{base[:60]}-{h}"
+
+
+def make_urn(namespace: str, *parts: str) -> str:
+    """A3 — Stable URN infrastructure, layered on top of slugify() rather
+    than inventing a second identity mechanism. Produces a hierarchical,
+    globally-unique reference:
+
+        urn:ncert-kg:<namespace>:<slug-1>:<slug-2>:...
+
+    `namespace` is typically "<book_slug>:<chapter_slug>" so urns stay
+    unique across an entire book/run, not just within one chapter.
+
+    DETERMINISM: built ONLY from slugify()-normalized `parts` -- object
+    kind, a content-derived key (name/term/title), and, only where no
+    content-derived key exists, a stable positional index -- never a
+    random UUID or a timestamp. Two independent compiler runs over
+    unchanged source content therefore always produce the identical urn;
+    the urn only changes when one of its inputs actually changes (i.e.
+    "stable across recompilations unless educational meaning changes",
+    per the Phase A roadmap's A3 requirement).
+
+    MULTILINGUAL / MULTI-BOARD NOTE: `namespace`/`parts` are taken as
+    already-resolved strings -- this function does not itself special-case
+    language or exam board. That means a translated title/heading
+    naturally slugifies to a different urn than its English-source
+    counterpart for "the same" underlying concept. That divergence is
+    intentional and out of scope for Phase A (cross-language/cross-board
+    concept alignment is a Phase-2/knowledge-graph concern, not an
+    identity-generation one) -- but it is called out explicitly here, per
+    the roadmap's instruction to review whether multilingual/multi-board
+    support requires URN changes, as the seam a future pass should extend
+    (e.g. keying off a language-independent concept fingerprint) rather
+    than a hidden assumption someone has to rediscover.
+    """
+    board_namespace = "ncert-kg"
+    slug_parts = [slugify(p) for p in parts if p]
+    if not slug_parts:
+        return f"urn:{board_namespace}:{namespace}"
+    return f"urn:{board_namespace}:{namespace}:" + ":".join(slug_parts)
 
 
 def auto_detect_subject(filename: str, first_page_text: str) -> str:
