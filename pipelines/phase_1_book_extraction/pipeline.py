@@ -67,7 +67,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 import fitz  # PyMuPDF
 
-from config import (PDF_INPUT_FOLDER, JSON_OUTPUT_FOLDER, DEFAULT_PAGE_BATCH_SIZE,
+from config import (PDF_INPUT_FOLDER, DEFAULT_PAGE_BATCH_SIZE,
                      VLM_MODEL_ID, DEFAULT_SUBJECT, DEFAULT_CLASS)
 from modules import pdf_parser, layout_detector, ocr_engine, content_blocks, language_detector
 from modules import semantic_processor, graph_builder, json_writer, vlm_inference
@@ -76,6 +76,11 @@ from modules import kg_readiness
 from modules import equation_intent
 from modules import canonical
 from modules.pdf_parser import make_id, slugify, auto_detect_subject, auto_detect_class
+from compiler.registries import create_registry_manager, populate_registries
+from compiler.enrichment import enrich_registries
+from compiler.normalization import normalize_registries
+from compiler.references import resolve_references
+from compiler import state as compiler_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -198,6 +203,15 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # modules/semantic_processor.py's reset_chapter_state() docstring for
     # why this must never leak across chapters).
     semantic_processor.reset_chapter_state()
+    # Phase B1 refinement (compiler/state.py): clear the *previous*
+    # chapter's populated RegistryManager, if any, from the compiler's
+    # current-compilation-state slot before this chapter's own registries
+    # are built below -- same reasoning as reset_chapter_state() just
+    # above, applied to the registry layer: a chapter that returns early
+    # (already-extracted skip, or an exception) must never leave a stale
+    # prior chapter's registries looking like "the current one" to any
+    # later phase that reads compiler.get_current_registry_manager().
+    compiler_state.reset_registry_state()
 
     if not force and json_writer.is_already_extracted(
             structure.klass, structure.subject, book_slug, structure.chapter_number, structure.chapter_title,
@@ -722,6 +736,116 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         f"formula(s), {validation_report['removed_duplicate_definitions']} duplicate definition(s), "
         f"{validation_report['removed_bare_arithmetic']} bare-arithmetic object(s) removed).")
 
+    # ---- Phase B1: canonical registry population -----------------------------
+    # Symbol-table layer for this compiler run: every canonical educational
+    # object this chapter built above (concepts/definitions/glossary/figures/
+    # diagrams/tables/equations/activities/boxes/warnings/notes/examples) is
+    # inserted into its matching CanonicalRegistry (compiler/registries.py),
+    # owned by one RegistryManager for this chapter. Insertion order matches
+    # each list's own order above -- the same deterministic order already
+    # passed into json_writer.assemble_chapter_json below -- so registry
+    # population never introduces its own ordering.
+    #
+    # This is purely an INTERNAL compiler representation for this Phase B1
+    # milestone: registry_manager is not attached to chapter_dict, not
+    # written into the Chapter JSON -- the compiler continues to build the
+    # Chapter JSON exactly as before this integration point. It IS,
+    # however (B1 refinement pass), handed to compiler/state.py's
+    # set_current_registry_manager() right below, so it survives past the
+    # end of this function as the compiler's current-compilation-state
+    # rather than simply falling out of scope -- see compiler/state.py's
+    # module docstring for the full ownership/lifecycle contract. Later
+    # Phase B milestones (registry enrichment, cross-link resolution,
+    # Knowledge Graph construction, ...) are what will actually consume
+    # it via compiler.get_current_registry_manager(); populating and
+    # retaining it here now is what makes the registries "the
+    # authoritative source for all later compiler phases" per the Phase
+    # B1 task objective, without yet changing pipeline.py's output
+    # contract.
+    registry_manager = create_registry_manager()
+    populate_registries(
+        registry_manager,
+        concepts=all_concepts, definitions=definitions, glossary=glossary,
+        figures=figures, diagrams=diagrams, tables=tables, equations=equations,
+        activities=activities, boxes=boxes, warnings=warnings_list, notes=notes,
+        examples=examples,
+    )
+    # ---- Phase B1b: canonical registry enrichment -----------------------
+    # Adds deterministic educational metadata (canonical_display_name,
+    # normalized_name, educational_role, object_subtype, semantic_summary,
+    # visual_summary, educational_importance/difficulty, extraction_quality,
+    # registry_metadata, and -- where the object already carries one -- an
+    # aliases list) onto every item already inserted above. See
+    # compiler/enrichment.py's module docstring for the full field list,
+    # derivation rules, and why this runs exactly here: registry items are
+    # the SAME dict objects as all_concepts/figures/tables/... (populate_registries()
+    # inserts references, never copies), so enriching them here also makes
+    # these fields visible on the objects assemble_chapter_json() serializes
+    # below -- additively only (new keys; no existing key/value/id/urn is
+    # ever changed), so existing JSON output stays fully backward
+    # compatible. Runs before set_current_registry_manager() so the
+    # manager any later phase reads via compiler.get_current_registry_manager()
+    # is always the enriched one, never a pre-enrichment snapshot.
+    enrich_registries(registry_manager)
+    # ---- Phase B1c: canonical normalization layer -----------------------
+    # Adds deterministic lookup-key/alias-normalization metadata
+    # (canonical_lookup_key, canonical_aliases, normalization) onto every
+    # item already enriched above. See compiler/normalization.py's module
+    # docstring for the full field list, derivation rules, and why this
+    # runs exactly here: same "same dict objects, additive-only mutation"
+    # reasoning as B1b's enrich_registries() call directly above -- this
+    # is a second, independent additive pass over the same items, not a
+    # redesign of enrichment. Runs after enrich_registries() (so
+    # normalization can eventually be told apart from pre-normalization
+    # enriched-only state via each item's own field set) and before
+    # set_current_registry_manager() so the manager any later phase reads
+    # via compiler.get_current_registry_manager() is always the fully
+    # enriched-and-normalized one.
+    normalize_registries(registry_manager)
+    # ---- Phase B2: deterministic cross-reference resolution -------------
+    # Resolves Definition/Glossary Entry -> Concept id links (and the
+    # matching reverse definition_ids/glossary_ids/... lists on each
+    # Concept record) using ONLY canonical ids, B1c's already-computed
+    # normalized lookup keys/aliases, and deterministic registry lookups
+    # -- see compiler/references.py's module docstring for the full
+    # resolution strategy, why the other ten registries' concept_ids
+    # stay [] today (no deterministic source field exists for them yet),
+    # and why Topic -> Concept resolution (already correctly resolved in
+    # the Phase A topic-construction loop above, into `concepts`/
+    # `concept_names`) is verified here read-only rather than re-written.
+    # Same "same dict objects, additive-only mutation" integration
+    # pattern as B1b's enrich_registries() / B1c's normalize_registries()
+    # directly above -- a third, independent additive pass over the same
+    # items, not a redesign of either. Runs after normalize_registries()
+    # (so resolution can rely on canonical_lookup_key/canonical_aliases
+    # already being present) and before set_current_registry_manager()
+    # so the manager any later phase reads via
+    # compiler.get_current_registry_manager() is always the fully
+    # enriched-normalized-and-resolved one. `topics_out` is passed only
+    # for the read-only Topic-vs-Concept parity check (see
+    # compiler/references.py's verify_topic_references) -- topic dicts
+    # themselves are never mutated by this call.
+    reference_resolution_stats = resolve_references(registry_manager, topics=topics_out)
+    compiler_state.set_current_registry_manager(registry_manager)
+    # Diagnostic only, and deliberately guarded: RegistryStatistics.
+    # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
+    # every registry's contents (see registry.py's _estimate_memory_bytes),
+    # so computing it unconditionally on every chapter run -- as an
+    # earlier version of this integration point did, passing
+    # registry_manager.statistics() directly as a logger.debug() argument
+    # -- did that scan every run regardless of logging level (Python
+    # evaluates call arguments eagerly; logger.debug()'s own laziness only
+    # covers %-formatting, not argument construction). Gating on
+    # isEnabledFor(DEBUG) first means this work is skipped entirely at
+    # the INFO level this pipeline runs at by default -- no behavior
+    # change to what gets logged when DEBUG *is* enabled, just no
+    # unnecessary work when it isn't.
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("chapter '%s': registry population — %s",
+                     structure.chapter_title, registry_manager.statistics())
+        logger.debug("chapter '%s': reference resolution — %s",
+                     structure.chapter_title, reference_resolution_stats)
+
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,
         glossary=glossary, definitions=definitions, examples=examples, activities=activities,
@@ -762,7 +886,11 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
     """
     pdf_folder = pdf_folder or PDF_INPUT_FOLDER
     os.makedirs(pdf_folder, exist_ok=True)
-    os.makedirs(output_root if output_root is not None else JSON_OUTPUT_FOLDER, exist_ok=True)
+    # NOTE: no local os.makedirs() for the output side anymore -- chapter/
+    # manifest output now lives on OneDrive (see modules/json_writer.py),
+    # and json_writer.book_output_dir() provisions each book's
+    # json_out/logs/cache/assets folders there automatically the first
+    # time a chapter for that book is written.
     all_paths = sorted(glob.glob(os.path.join(pdf_folder, "*.pdf")))
     if not all_paths:
         logger.warning("No PDFs found in '%s'.", os.path.abspath(pdf_folder))

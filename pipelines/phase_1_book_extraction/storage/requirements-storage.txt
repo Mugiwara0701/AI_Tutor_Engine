@@ -1,0 +1,7 @@
+# Dependencies for the storage/ (OneDrive) package only.
+# Kept separate from the project's top-level requirements.txt so this
+# standalone SDK's deps don't get mixed into the extraction pipeline's
+# dependency set until someone actually decides to integrate it.
+msal>=1.28.0
+requests>=2.31.0
+PyYAML>=6.0
