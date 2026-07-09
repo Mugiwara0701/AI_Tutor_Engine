@@ -77,6 +77,7 @@ from modules import equation_intent
 from modules import canonical
 from modules.pdf_parser import make_id, slugify, auto_detect_subject, auto_detect_class
 from compiler.registries import create_registry_manager, populate_registries
+from compiler.enrichment import enrich_registries
 from compiler import state as compiler_state
 
 logging.basicConfig(
@@ -767,6 +768,23 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         activities=activities, boxes=boxes, warnings=warnings_list, notes=notes,
         examples=examples,
     )
+    # ---- Phase B1b: canonical registry enrichment -----------------------
+    # Adds deterministic educational metadata (canonical_display_name,
+    # normalized_name, educational_role, object_subtype, semantic_summary,
+    # visual_summary, educational_importance/difficulty, extraction_quality,
+    # registry_metadata, and -- where the object already carries one -- an
+    # aliases list) onto every item already inserted above. See
+    # compiler/enrichment.py's module docstring for the full field list,
+    # derivation rules, and why this runs exactly here: registry items are
+    # the SAME dict objects as all_concepts/figures/tables/... (populate_registries()
+    # inserts references, never copies), so enriching them here also makes
+    # these fields visible on the objects assemble_chapter_json() serializes
+    # below -- additively only (new keys; no existing key/value/id/urn is
+    # ever changed), so existing JSON output stays fully backward
+    # compatible. Runs before set_current_registry_manager() so the
+    # manager any later phase reads via compiler.get_current_registry_manager()
+    # is always the enriched one, never a pre-enrichment snapshot.
+    enrich_registries(registry_manager)
     compiler_state.set_current_registry_manager(registry_manager)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over

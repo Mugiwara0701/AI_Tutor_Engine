@@ -78,6 +78,15 @@ from .state import (
     has_current_registry_manager,
     reset_registry_state,
 )
+from .enrichment import (
+    ENRICHMENT_VERSION,
+    ENRICHMENT_FIELDS,
+    EDUCATIONAL_ROLE_BY_OBJECT_TYPE,
+    compute_enrichment,
+    enrich_item,
+    enrich_registry,
+    enrich_registries,
+)
 
 __all__ = [
     "CanonicalRegistry",
@@ -109,4 +118,11 @@ __all__ = [
     "get_current_registry_manager",
     "has_current_registry_manager",
     "reset_registry_state",
+    "ENRICHMENT_VERSION",
+    "ENRICHMENT_FIELDS",
+    "EDUCATIONAL_ROLE_BY_OBJECT_TYPE",
+    "compute_enrichment",
+    "enrich_item",
+    "enrich_registry",
+    "enrich_registries",
 ]
