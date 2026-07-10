@@ -80,6 +80,11 @@ from compiler.registries import create_registry_manager, populate_registries
 from compiler.enrichment import enrich_registries
 from compiler.normalization import normalize_registries
 from compiler.references import resolve_references
+from compiler.relationships import resolve_relationships
+from compiler.validation import validate_compiler_state
+from compiler.build import generate_compiler_manifest, generate_compiler_statistics
+from compiler.fingerprints import generate_compiler_fingerprints
+from compiler.finalize import finalize_compiler_build
 from compiler import state as compiler_state
 
 logging.basicConfig(
@@ -746,6 +751,13 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # passed into json_writer.assemble_chapter_json below -- so registry
     # population never introduces its own ordering.
     #
+    # C0.1 audit-findings refinement (Task 1): `topics` is now also a
+    # first-class registry (TopicRegistry) here, populated from a
+    # canonical-enveloped snapshot copy of `topics_out`, not `topics_out`
+    # itself -- see the comment right above `registry_manager =` below and
+    # compiler/registries.py's own "TOPIC REGISTRY" docstring section for
+    # why a copy, not a shared reference, is used only for this one type.
+    #
     # This is purely an INTERNAL compiler representation for this Phase B1
     # milestone: registry_manager is not attached to chapter_dict, not
     # written into the Chapter JSON -- the compiler continues to build the
@@ -762,9 +774,40 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # authoritative source for all later compiler phases" per the Phase
     # B1 task objective, without yet changing pipeline.py's output
     # contract.
+    # C0.1 audit-findings refinement (Task 1): `topics_out` itself is
+    # deliberately left untouched (it is what json_writer.assemble_chapter_json
+    # serializes below, byte-for-byte unchanged by this refinement -- see
+    # compiler/registries.py's own "TOPIC REGISTRY" docstring section for
+    # the full reasoning). What TopicRegistry receives instead is a
+    # separate, canonical-enveloped SNAPSHOT COPY of each topic -- built
+    # the exact same way concepts/glossary build their own envelope
+    # in-loop above (canonical.canonical_fields(), object_type="topic") --
+    # so later phases (B1b enrichment / B1c normalization / B2 references /
+    # B4 validation), which mutate registry items in place, only ever
+    # mutate this snapshot, never `topics_out`/Chapter JSON.
+    topic_registry_items: List[Dict[str, Any]] = [
+        {
+            **canonical.canonical_fields(
+                object_id=t["id"], object_type="topic", namespace=canonical_namespace,
+                urn_parts=["topic", t["id"]], subject=structure.subject,
+                chapter_reference=chapter_reference, topic_ids=[],
+                concept_ids=list(t.get("concepts") or []),
+                source_page=t.get("page_start"), source_heading=t.get("title"),
+                extraction_stage="pipeline.process_chapter:topic_registry_snapshot",
+                extraction_method="deterministic", confidence=t.get("confidence", 0.5),
+            ),
+            "title": t.get("title"), "numbering": t.get("numbering"), "level": t.get("level"),
+            "parent": t.get("parent"), "children": list(t.get("children") or []),
+            "page_start": t.get("page_start"), "page_end": t.get("page_end"),
+            "concepts": list(t.get("concepts") or []),
+            "concept_names": list(t.get("concept_names") or []),
+        }
+        for t in topics_out
+    ]
     registry_manager = create_registry_manager()
     populate_registries(
         registry_manager,
+        topics=topic_registry_items,
         concepts=all_concepts, definitions=definitions, glossary=glossary,
         figures=figures, diagrams=diagrams, tables=tables, equations=equations,
         activities=activities, boxes=boxes, warnings=warnings_list, notes=notes,
@@ -826,7 +869,155 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # compiler/references.py's verify_topic_references) -- topic dicts
     # themselves are never mutated by this call.
     reference_resolution_stats = resolve_references(registry_manager, topics=topics_out)
+    # ---- Phase B3: canonical semantic relationship resolution -----------
+    # Turns the references B2 just resolved (definition_id/glossary_id's
+    # own concept_id, each item's own Phase-A topic_ids, and each topic's
+    # own already-Phase-A-resolved `concepts` list) into explicit, typed
+    # Relationship records (has_definition / explains / described_by /
+    # contains / appears_in / belongs_to / uses_concept / illustrates /
+    # teaches) -- see compiler/relationships.py's module docstring for
+    # the full generation rules and its MOST IMPORTANT REQUIREMENT
+    # section. Relationships are stored ONLY in their own dedicated
+    # "relationships" registry on `registry_manager` (created here,
+    # on-demand, by resolve_relationships() itself) -- an internal
+    # compiler-IR artifact, exactly like every other registry above.
+    # They are NEVER attached to concepts/definitions/.../chapter_dict
+    # and NEVER reach json_writer.assemble_chapter_json's output (called
+    # further below) -- Phase C is what will consume this registry
+    # directly via compiler.state.get_current_registry_manager(), not the
+    # Chapter JSON file. Runs after resolve_references() (so concept_id/
+    # concept_ids/topic_ids are already present to read) and before
+    # set_current_registry_manager() so the manager any later phase reads
+    # is always the fully enriched-normalized-resolved-and-related one.
+    relationship_resolution_stats = resolve_relationships(registry_manager, topics=topics_out)
+    # ---- Phase B4: compiler validation & integrity pass ------------------
+    # Read-only inspection of everything Phases A/B0/B1/B1b/B1c/B2/B3 just
+    # built: registry integrity (unique ids/urns, duplicate lookup keys/
+    # aliases), canonical object integrity (required fields present),
+    # reference integrity (every concept_id/concept_ids/topic_ids/reverse-
+    # aggregation field actually resolves), relationship integrity (every
+    # relationship's source/target exist, type is valid, no duplicates/
+    # orphans), compiler state integrity (every required registry present,
+    # including "relationships"), and determinism validation (id/urn shape,
+    # relationship id recomputation) -- see compiler/validation.py's module
+    # docstring for the full rule set. Never repairs or regenerates
+    # anything (task's own "Do NOT implement automatic repair").
+    #
+    # NOTE the deliberate `compiler_validation_report` name (NOT
+    # `validation_report`): Stage E (above) already binds a
+    # `validation_report` local variable -- the educational-object
+    # duplicate/bare-arithmetic report that DOES flow into
+    # assemble_chapter_json() below. Reusing that name here would
+    # silently shadow it and, worse, would mean whichever report is
+    # assigned last is what assemble_chapter_json() actually receives --
+    # exactly the "relationships/validation leaking into Chapter JSON"
+    # failure mode this whole phase must avoid. Keeping the two names
+    # distinct is what keeps this compiler-only report out of Chapter
+    # JSON's `validation_report` field.
+    #
+    # The resulting report becomes part of the compiler state via
+    # compiler_state.set_current_validation_report() below instead --
+    # an internal compiler diagnostic, never serialized into Chapter
+    # JSON. Runs after resolve_relationships() (so the "relationships"
+    # registry already exists and is fully populated to validate) and
+    # before set_current_registry_manager() so it inspects
+    # `registry_manager` exactly as it will be handed off as this
+    # chapter's compiler IR.
+    compiler_validation_report = validate_compiler_state(registry_manager, topics=topics_out)
+    # ---- Phase B5.1: compiler manifest & statistics -----------------------
+    # Deterministic metadata DESCRIBING the compiler build Phases A-B4 just
+    # produced -- versions, per-registry/relationship counts, and the B4
+    # validation verdict -- read entirely from `compiler_validation_report`
+    # (just computed above) and `registry_manager`'s own cheap aggregate
+    # accessors. See compiler/build.py's module docstring for the full
+    # field list and reuse strategy. Never changes the compiler IR: neither
+    # call below inserts into, updates, or removes from any registry, and
+    # neither artifact is attached to chapter_dict or reaches
+    # json_writer.assemble_chapter_json's output below -- exactly the same
+    # "internal compiler diagnostic, never serialized into Chapter JSON"
+    # treatment Phase B4's compiler_validation_report already gets just
+    # above. `chapter_identifier` is `chapter_reference` (computed once,
+    # earlier in this function, from the same deterministic
+    # book_slug/chapter_slug pair every id/urn/chapter_reference for this
+    # chapter already uses) -- reused, not recomputed.
+    #
+    # Runs after validate_compiler_state() (so there is a validation report
+    # to read status/summaries from) and before
+    # set_current_registry_manager() so the manifest/statistics describe
+    # `registry_manager` exactly as it is about to become "current", not a
+    # stale snapshot.
+    compiler_manifest = generate_compiler_manifest(
+        registry_manager, compiler_validation_report,
+        chapter_identifier=chapter_reference,
+    )
+    compiler_statistics = generate_compiler_statistics(
+        registry_manager, compiler_validation_report,
+    )
+    # ---- Phase B5.2: compiler fingerprints & readiness --------------------
+    # Deterministic fingerprints (per-registry + one overall compiler
+    # fingerprint) and a read-only readiness verdict, derived entirely from
+    # `registry_manager` (via each registry's own serialize()), plus the
+    # `compiler_manifest`/`compiler_statistics` just generated above and
+    # `compiler_validation_report` from Phase B4 -- see compiler/
+    # fingerprints.py's module docstring for the full derivation and
+    # volatile-field-exclusion strategy. Never changes the compiler IR:
+    # this call inserts into, updates, or removes from no registry, and
+    # none of its three results are attached to chapter_dict or reach
+    # json_writer.assemble_chapter_json's output below -- exactly the
+    # same "internal compiler diagnostic, never serialized into Chapter
+    # JSON" treatment Phase B4's/B5.1's own artifacts already get above.
+    #
+    # Runs after generate_compiler_manifest()/generate_compiler_statistics()
+    # (so there is a manifest/statistics to fold into the compiler
+    # fingerprint) and before set_current_registry_manager() so the
+    # fingerprints/readiness report describe `registry_manager` exactly as
+    # it is about to become "current", not a stale snapshot.
+    compiler_fingerprint_results = generate_compiler_fingerprints(
+        registry_manager,
+        manifest=compiler_manifest,
+        statistics=compiler_statistics,
+        validation_report=compiler_validation_report,
+    )
+    compiler_registry_fingerprints = compiler_fingerprint_results["registry_fingerprints"]
+    compiler_fingerprint = compiler_fingerprint_results["compiler_fingerprint"]
+    compiler_readiness_report = compiler_fingerprint_results["readiness_report"]
+
     compiler_state.set_current_registry_manager(registry_manager)
+    compiler_state.set_current_validation_report(compiler_validation_report)
+    compiler_state.set_current_compiler_manifest(compiler_manifest)
+    compiler_state.set_current_compiler_statistics(compiler_statistics)
+    compiler_state.set_current_registry_fingerprints(compiler_registry_fingerprints)
+    compiler_state.set_current_compiler_fingerprint(compiler_fingerprint)
+    compiler_state.set_current_compiler_readiness_report(compiler_readiness_report)
+    # ---- Phase B5.3: compiler finalization ---------------------------------
+    # One deterministic Build Summary and one Final Compiler Status
+    # (READY / READY_WITH_WARNINGS / FAILED), aggregating the manifest,
+    # statistics, fingerprints, and readiness report already produced
+    # above -- see compiler/finalize.py's module docstring for the full
+    # aggregation strategy. Performs no new validation or readiness
+    # checking of its own: the final status is derived only from
+    # `compiler_validation_report` (Phase B4) and `compiler_readiness_
+    # report` (Phase B5.2). Never changes the compiler IR: this call
+    # inserts into, updates, or removes from no registry, and neither of
+    # its two results is attached to chapter_dict or reaches json_writer.
+    # assemble_chapter_json's output below -- exactly the same "internal
+    # compiler diagnostic, never serialized into Chapter JSON" treatment
+    # every earlier Phase B artifact already gets above.
+    #
+    # Runs after generate_compiler_fingerprints() (so there is a
+    # readiness report / compiler fingerprint to aggregate) and before the
+    # compiler state for this chapter is considered complete.
+    compiler_finalization = finalize_compiler_build(
+        registry_manager,
+        validation_report=compiler_validation_report,
+        manifest=compiler_manifest,
+        statistics=compiler_statistics,
+        registry_fingerprints=compiler_registry_fingerprints,
+        compiler_fingerprint=compiler_fingerprint,
+        readiness_report=compiler_readiness_report,
+    )
+    compiler_state.set_current_compiler_build_summary(compiler_finalization["build_summary"])
+    compiler_state.set_current_final_compiler_status(compiler_finalization["final_status"])
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
@@ -845,6 +1036,15 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title, registry_manager.statistics())
         logger.debug("chapter '%s': reference resolution — %s",
                      structure.chapter_title, reference_resolution_stats)
+        logger.debug("chapter '%s': relationship resolution — %s",
+                     structure.chapter_title, relationship_resolution_stats)
+        logger.debug("chapter '%s': compiler validation — status=%s errors=%d warnings=%d",
+                     structure.chapter_title, compiler_validation_report["status"],
+                     len(compiler_validation_report["errors"]), len(compiler_validation_report["warnings"]))
+        logger.debug("chapter '%s': compiler manifest — %s",
+                     structure.chapter_title, compiler_manifest)
+        logger.debug("chapter '%s': compiler statistics — %s",
+                     structure.chapter_title, compiler_statistics)
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,
