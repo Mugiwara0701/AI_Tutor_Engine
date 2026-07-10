@@ -1,5 +1,7 @@
 """
 knowledge_graph/ — Phase C0: Knowledge Graph Architecture Foundation.
+(Phase C1: Knowledge Graph Node Construction -- see "PHASE C1 ADDITION"
+below for what changed and why.)
 
 This package is ARCHITECTURE ONLY as of Phase C0: base schemas
 (schema.py), a base node model (node.py), a base edge model (edge.py),
@@ -7,13 +9,27 @@ a registry system reusing compiler.RegistryManager (registries.py), a
 deterministic identity scheme (identity.py), validation contracts
 (validation.py), a documented pipeline order (pipeline_architecture.py),
 and state lifecycle plumbing (state.py) mirroring compiler/state.py's
-own pattern. No node, no edge, and no populated KnowledgeGraph is ever
-constructed anywhere in this package or called from anywhere else in
-this codebase as of Phase C0 -- every set_current_*() function in
-state.py, every id/urn builder in identity.py, and every dataclass in
-schema.py exists but is never invoked/instantiated against real
-Compiler IR data yet. See docs/knowledge_graph_architecture.md for the
-full architecture writeup.
+own pattern. No edge is ever constructed anywhere in this package or
+called from anywhere else in this codebase as of Phase C1 -- edge
+construction remains C2's job (see pipeline_architecture.py). Every
+set_current_*() function in state.py OTHER than
+set_current_knowledge_graph() (see below), every id/urn builder in
+identity.py beyond node_id()/node_urn(), and every dataclass in
+schema.py OTHER than KnowledgeGraph/KnowledgeGraphMetadata still exists
+but is never invoked/instantiated against real Compiler IR data yet.
+See docs/knowledge_graph_architecture.md for the full architecture
+writeup.
+
+PHASE C1 ADDITION: `nodes.py` defines the thirteen concrete node classes
+(TopicNode, ConceptNode, ...) FUTURE_NODE_TYPES (node.py) already
+reserved, and `build_nodes.py` defines the Node Builder
+(`build_knowledge_graph_nodes()`) that reads a populated Compiler IR
+`RegistryManager` and constructs exactly one node per canonical object,
+inserted into a `GraphRegistryManager`'s `nodes` registry -- see both
+modules' own docstrings. This is the first Phase C code that actually
+constructs a `GraphNodeBase` instance against real data anywhere in this
+codebase. No edge is built. See `pipeline.py`'s own Phase C1 integration
+point comment for the one place this is called from.
 
 RELATIONSHIP TO compiler/: this package reads Compiler IR (a populated
 compiler.RegistryManager, plus every Phase B artifact --
@@ -106,6 +122,29 @@ from .pipeline_architecture import (
     PIPELINE_STAGES,
     stage_names_in_order,
 )
+from .nodes import (
+    NODE_CLASSES_VERSION,
+    NODE_CLASSES,
+    TopicNode,
+    ConceptNode,
+    DefinitionNode,
+    GlossaryNode,
+    EquationNode,
+    FigureNode,
+    DiagramNode,
+    TableNode,
+    ActivityNode,
+    ExampleNode,
+    BoxNode,
+    WarningNode,
+    NoteNode,
+)
+from .build_nodes import (
+    NODE_BUILDER_VERSION,
+    NODE_TYPE_BY_COMPILER_REGISTRY,
+    build_node,
+    build_knowledge_graph_nodes,
+)
 from . import state as state
 
 __all__ = [
@@ -165,5 +204,24 @@ __all__ = [
     "PipelineStageSpec",
     "PIPELINE_STAGES",
     "stage_names_in_order",
+    "NODE_CLASSES_VERSION",
+    "NODE_CLASSES",
+    "TopicNode",
+    "ConceptNode",
+    "DefinitionNode",
+    "GlossaryNode",
+    "EquationNode",
+    "FigureNode",
+    "DiagramNode",
+    "TableNode",
+    "ActivityNode",
+    "ExampleNode",
+    "BoxNode",
+    "WarningNode",
+    "NoteNode",
+    "NODE_BUILDER_VERSION",
+    "NODE_TYPE_BY_COMPILER_REGISTRY",
+    "build_node",
+    "build_knowledge_graph_nodes",
     "state",
 ]
