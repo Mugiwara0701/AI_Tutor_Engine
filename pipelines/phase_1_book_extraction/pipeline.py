@@ -95,6 +95,8 @@ from knowledge_graph.finalize import finalize_knowledge_graph
 from knowledge_graph.identity import graph_id as kg_graph_id, graph_urn as kg_graph_urn
 from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
 from knowledge_graph import state as kg_state
+from validation.system_integrity import validate_system_integrity
+from validation import state as system_integrity_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1207,6 +1209,56 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     kg_state.set_current_final_graph_status(
         knowledge_graph_finalization["graph_final_status"]
     )
+    # ---- Phase D1: System Integrity Validation ------------------------------
+    # The one Phase D1 integration point: runs after Phase C is fully
+    # complete (knowledge_graph_finalization above is the last thing
+    # Phase C computes for this chapter) -- see validation/
+    # system_integrity.py's own module docstring for exactly what this
+    # does (read-only cross-checks across the COMPLETE pipeline: Compiler
+    # Registries <-> Knowledge Graph Nodes, Knowledge Graph Nodes <->
+    # Knowledge Graph Edges, Compiler Fingerprints <-> Knowledge Graph
+    # Fingerprints, Compiler Manifest <-> Knowledge Graph Manifest,
+    # manifest counts <-> statistics counts on both layers, and readiness
+    # reports/build summaries existing and agreeing with the fingerprints
+    # already generated). This is NOT a second Compiler Validation or
+    # Knowledge Graph Validation pass -- every check here either reads a
+    # verdict either of those two passes (or the manifest/statistics/
+    # fingerprints/readiness/build-summary passes downstream of them)
+    # already computed, or performs one new check that genuinely spans
+    # two artifacts neither existing pass has both of in scope.
+    #
+    # Read-only over every argument: no compiler registry and no graph
+    # registry is inserted into, updated, or removed from; no manifest/
+    # statistics/fingerprint/readiness-report/build-summary dict anywhere
+    # is mutated; nothing here is attached to chapter_dict or reaches
+    # json_writer.assemble_chapter_json's output below -- exactly the
+    # same "internal diagnostic, never serialized into Chapter JSON"
+    # treatment every Phase B5/Phase C artifact already gets above.
+    # Stored via validation.state (mirroring compiler_state's/kg_state's
+    # own "current chapter's artifacts" pattern one layer up).
+    system_integrity_state.reset_system_integrity_state()
+    system_integrity_report = validate_system_integrity(
+        registry_manager, knowledge_graph_registry_manager,
+        compiler_validation_report=compiler_validation_report,
+        compiler_manifest=compiler_manifest,
+        compiler_statistics=compiler_statistics,
+        compiler_registry_fingerprints=compiler_registry_fingerprints,
+        compiler_fingerprint=compiler_fingerprint,
+        compiler_readiness_report=compiler_readiness_report,
+        compiler_build_summary=compiler_finalization["build_summary"],
+        knowledge_graph_validation_report=knowledge_graph_validation_report,
+        knowledge_graph_manifest=knowledge_graph_manifest,
+        knowledge_graph_statistics=knowledge_graph_statistics,
+        knowledge_graph_registry_fingerprints=knowledge_graph_registry_fingerprints,
+        knowledge_graph_fingerprint=knowledge_graph_fingerprint,
+        knowledge_graph_readiness_report=knowledge_graph_readiness_report,
+        knowledge_graph_build_summary=knowledge_graph_finalization["graph_build_summary"],
+    )
+    system_integrity_state.set_current_system_integrity_report(system_integrity_report)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("chapter '%s': system integrity — status=%s errors=%d warnings=%d",
+                     structure.chapter_title, system_integrity_report["overall_status"],
+                     len(system_integrity_report["errors"]), len(system_integrity_report["warnings"]))
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
