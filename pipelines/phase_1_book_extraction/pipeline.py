@@ -99,6 +99,8 @@ from validation.system_integrity import validate_system_integrity
 from validation import state as system_integrity_state
 from validation.determinism import validate_determinism
 from validation import determinism_state
+from validation.release import finalize_release
+from validation import release_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1302,6 +1304,54 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         logger.debug("chapter '%s': determinism — status=%s errors=%d warnings=%d",
                      structure.chapter_title, determinism_report["overall_status"],
                      len(determinism_report["errors"]), len(determinism_report["warnings"]))
+    # ---- Phase D3: Release Readiness (Final Release Gate) -------------------
+    # The one Phase D3 integration point: runs immediately after Phase D2
+    # (determinism_report above is the last thing Phase D2 computes for
+    # this chapter) -- see validation/release.py's own module docstring
+    # for exactly what this does. This is NOT a third validation or
+    # determinism pass and does not re-check anything D1/D2 (or any
+    # earlier phase) already checked; it instead AGGREGATES every
+    # already-computed Phase B-D2 report into one final Release
+    # Readiness Report and one final Release Decision (READY /
+    # READY_WITH_WARNINGS / FAILED).
+    #
+    # Read-only over every argument: no compiler registry and no graph
+    # registry is inserted into, updated, or removed from; no manifest/
+    # statistics/fingerprint/readiness-report/build-summary/validation-
+    # report/System-Integrity-Report/Determinism-Report dict anywhere is
+    # mutated; nothing here is attached to chapter_dict or reaches
+    # json_writer.assemble_chapter_json's output below -- same "internal
+    # diagnostic, never serialized into Chapter JSON" treatment
+    # determinism_report already gets above. Stored via validation.
+    # release_state (mirroring validation.state's/validation.
+    # determinism_state's own "current chapter's artifacts" pattern one
+    # artifact over).
+    release_state.reset_release_state()
+    release_finalization = finalize_release(
+        compiler_validation_report=compiler_validation_report,
+        knowledge_graph_validation_report=knowledge_graph_validation_report,
+        compiler_readiness_report=compiler_readiness_report,
+        knowledge_graph_readiness_report=knowledge_graph_readiness_report,
+        compiler_build_summary=compiler_finalization["build_summary"],
+        knowledge_graph_build_summary=knowledge_graph_finalization["graph_build_summary"],
+        system_integrity_report=system_integrity_report,
+        determinism_report=determinism_report,
+        compiler_manifest=compiler_manifest,
+        knowledge_graph_manifest=knowledge_graph_manifest,
+        compiler_fingerprint=compiler_fingerprint,
+        knowledge_graph_fingerprint=knowledge_graph_fingerprint,
+        compiler_statistics=compiler_statistics,
+        knowledge_graph_statistics=knowledge_graph_statistics,
+    )
+    release_state.set_current_release_readiness_report(
+        release_finalization["release_readiness_report"]
+    )
+    release_state.set_current_release_status(release_finalization["release_status"])
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("chapter '%s': release readiness — status=%s errors=%d warnings=%d",
+                     structure.chapter_title, release_finalization["release_status"],
+                     len(release_finalization["release_readiness_report"]["errors"]),
+                     len(release_finalization["release_readiness_report"]["warnings"]))
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
