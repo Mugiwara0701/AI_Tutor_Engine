@@ -33,10 +33,7 @@ export default function AppRouter() {
         <Route path="/dashboard" element={<DashboardPage />} />
 
         <Route path="/library" element={<LibraryPage />} />
-        <Route path="/library/classes" element={<LibraryPage />} />
-        <Route path="/library/subjects" element={<LibraryPage />} />
-        <Route path="/library/topics" element={<LibraryPage />} />
-        <Route path="/library/books" element={<LibraryPage />} />
+        {/* <Route path="/library/board/cbse" element={<LibraryPage />} /> */}
         <Route path="/library/topics/:topicId" element={<TopicDetailPage />} />
 
         <Route path="/learning-graph" element={<LearningGraphPage />} />

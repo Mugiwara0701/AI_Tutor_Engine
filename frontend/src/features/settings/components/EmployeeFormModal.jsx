@@ -8,6 +8,7 @@ import { Eye, EyeOff } from "lucide-react";
 import ModalDialog from "../../../components/ui/ModalDialog.jsx";
 import Dropdown from "../../../components/ui/Dropdown.jsx";
 import { cn } from "../../../utils/classNames.js";
+import { DEFAULT_EMPLOYEE_PASSWORD } from "../../../lib/constants.js";
 
 const EMPTY_FORM = {
   name: "",
@@ -17,15 +18,21 @@ const EMPTY_FORM = {
   status: "Active",
 };
 
-function validate(form, { isUserIdTaken }) {
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validate(form, { isUserIdTaken }, isEditing) {
   const errors = {};
   if (!form.name.trim()) errors.name = "Employee name is required.";
   if (!form.userId.trim()) {
-    errors.userId = "User ID / Username is required.";
+    errors.userId = "Email address is required.";
+  } else if (!EMAIL_PATTERN.test(form.userId.trim())) {
+    errors.userId = "Enter a valid email address.";
   } else if (isUserIdTaken(form.userId)) {
-    errors.userId = "This User ID is already taken.";
+    errors.userId = "This email is already taken.";
   }
-  if (!form.password.trim()) errors.password = "Password is required.";
+  if (isEditing && !form.password.trim()) {
+    errors.password = "Password is required.";
+  }
   if (!form.role) errors.role = "Role is required.";
   if (!form.status) errors.status = "Status is required.";
   return errors;
@@ -43,6 +50,8 @@ export default function EmployeeFormModal({
   const [form, setForm] = useState(EMPTY_FORM);
   const [errors, setErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
+  const [formError, setFormError] = useState(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isEditing = Boolean(editingEmployee);
 
@@ -60,6 +69,8 @@ export default function EmployeeFormModal({
         : EMPTY_FORM,
     );
     setErrors({});
+    setFormError(null);
+    setIsSubmitting(false);
     setShowPassword(false);
   }, [open, editingEmployee]);
 
@@ -73,17 +84,30 @@ export default function EmployeeFormModal({
     setErrors({});
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const nextErrors = validate(form, {
-      isUserIdTaken: (userId) =>
-        isUserIdTaken(userId, isEditing ? editingEmployee.id : undefined),
-    });
+    setFormError(null);
+    const nextErrors = validate(
+      form,
+      {
+        isUserIdTaken: (userId) =>
+          isUserIdTaken(userId, isEditing ? editingEmployee.id : undefined),
+      },
+      isEditing,
+    );
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
       return;
     }
-    onSubmit(form);
+    setIsSubmitting(true);
+    try {
+      await onSubmit(form);
+      // Parent closes the modal on success.
+    } catch (err) {
+      setFormError(err.message || "Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -94,6 +118,12 @@ export default function EmployeeFormModal({
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+        {formError && (
+          <div className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            {formError}
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
             Employee Name
@@ -116,13 +146,13 @@ export default function EmployeeFormModal({
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            User ID / Username
+            Email Address
           </label>
           <input
-            type="text"
+            type="email"
             value={form.userId}
             onChange={(e) => setField("userId", e.target.value)}
-            placeholder="e.g. priya.sharma"
+            placeholder="e.g. priya.sharma@company.com"
             className={cn(
               "w-full px-3 py-2 rounded-btn border bg-white text-sm text-slate-700 placeholder:text-slate-400 transition-colors",
               "focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40",
@@ -134,39 +164,47 @@ export default function EmployeeFormModal({
           )}
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1.5">
-            Password
-          </label>
-          <div className="relative">
-            <input
-              type={showPassword ? "text" : "password"}
-              value={form.password}
-              onChange={(e) => setField("password", e.target.value)}
-              placeholder="Enter a password"
-              className={cn(
-                "w-full pl-3 pr-10 py-2 rounded-btn border bg-white text-sm text-slate-700 placeholder:text-slate-400 transition-colors",
-                "focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40",
-                errors.password ? "border-red-300" : "border-slate-200",
-              )}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 transition-colors"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? (
-                <EyeOff className="w-4 h-4" />
-              ) : (
-                <Eye className="w-4 h-4" />
-              )}
-            </button>
+        {isEditing ? (
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Password
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={form.password}
+                onChange={(e) => setField("password", e.target.value)}
+                placeholder="Enter a password"
+                className={cn(
+                  "w-full pl-3 pr-10 py-2 rounded-btn border bg-white text-sm text-slate-700 placeholder:text-slate-400 transition-colors",
+                  "focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40",
+                  errors.password ? "border-red-300" : "border-slate-200",
+                )}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 transition-colors"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+            {errors.password && (
+              <p className="text-xs text-red-600 mt-1">{errors.password}</p>
+            )}
           </div>
-          {errors.password && (
-            <p className="text-xs text-red-600 mt-1">{errors.password}</p>
-          )}
-        </div>
+        ) : (
+          <div className="rounded-btn bg-blue-50 border border-blue-100 px-3 py-2.5 text-sm text-blue-700">
+            New employees are created with the default password{" "}
+            <span className="font-semibold">{DEFAULT_EMPLOYEE_PASSWORD}</span>.
+            They can change it after signing in.
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
@@ -224,9 +262,19 @@ export default function EmployeeFormModal({
           </button>
           <button
             type="submit"
-            className="px-3.5 py-2 rounded-btn bg-primary text-white text-sm font-medium hover:bg-blue-700 transition-colors"
+            disabled={isSubmitting}
+            className={cn(
+              "px-3.5 py-2 rounded-btn bg-primary text-white text-sm font-medium hover:bg-blue-700 transition-colors",
+              isSubmitting && "opacity-70 cursor-not-allowed",
+            )}
           >
-            {isEditing ? "Save Changes" : "Add Employee"}
+            {isSubmitting
+              ? isEditing
+                ? "Saving…"
+                : "Adding…"
+              : isEditing
+                ? "Save Changes"
+                : "Add Employee"}
           </button>
         </div>
       </form>

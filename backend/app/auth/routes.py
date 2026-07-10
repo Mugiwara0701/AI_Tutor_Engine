@@ -1,6 +1,9 @@
 """
-Authentication routes: /auth/register, /auth/login, /auth/logout, /auth/me
+Authentication routes: /auth/register, /auth/login, /auth/logout, /auth/me,
+/auth/users (list/update/delete)
 """
+
+import uuid
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
@@ -16,6 +19,7 @@ from app.models.schemas import (
     RegisterRequest,
     RegisterResponse,
     TokenResponse,
+    UpdateUserRequest,
     UserProfileOut,
 )
 from app.utils.response import success_response
@@ -54,3 +58,35 @@ def logout(db: Session = Depends(get_db), current_user: UserProfile = Depends(ge
 def me(current_user: UserProfile = Depends(get_current_user)):
     data = UserProfileOut.model_validate(current_user)
     return success_response(message="Current user fetched", data=data.model_dump(mode="json"))
+
+
+@router.get("/users", response_model=APIResponse)
+def list_users(
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user),
+):
+    users = service.list_users(db)
+    data = [UserProfileOut.model_validate(user).model_dump(mode="json") for user in users]
+    return success_response(message="Users fetched", data=data)
+
+
+@router.patch("/users/{user_id}", response_model=APIResponse)
+def update_user(
+    user_id: uuid.UUID,
+    payload: UpdateUserRequest,
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user),
+):
+    profile = service.update_user(db, user_id, payload)
+    data = UserProfileOut.model_validate(profile)
+    return success_response(message="User updated", data=data.model_dump(mode="json"))
+
+
+@router.delete("/users/{user_id}", response_model=APIResponse)
+def delete_user(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user),
+):
+    service.delete_user(db, user_id)
+    return success_response(message="User deleted")

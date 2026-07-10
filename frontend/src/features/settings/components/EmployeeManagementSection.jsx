@@ -9,6 +9,8 @@ import { useEmployeeData } from "../hooks/useEmployeeData.js";
 import EmployeeFormModal from "./EmployeeFormModal.jsx";
 import EmployeeTable from "./EmployeeTable.jsx";
 import InlineAlert from "../../../components/shared/InlineAlert.jsx";
+import { registerUser } from "../../auth/api/authApi.js";
+import { DEFAULT_EMPLOYEE_PASSWORD } from "../../../lib/constants.js";
 
 export default function EmployeeManagementSection() {
   const {
@@ -36,16 +38,40 @@ export default function EmployeeManagementSection() {
     setModalOpen(true);
   };
 
-  const handleSubmit = (form) => {
+  const handleSubmit = async (form) => {
     if (editingEmployee) {
       updateEmployee(editingEmployee.id, form);
-      setAlert({ type: "success", message: `${form.name}'s details were updated.` });
-    } else {
-      addEmployee(form);
-      setAlert({ type: "success", message: `${form.name} was added successfully.` });
+      setAlert({
+        type: "success",
+        message: `${form.name}'s details were updated.`,
+      });
+      setModalOpen(false);
+      setEditingEmployee(null);
+      return;
     }
+
+    // Register the new employee against the real backend, using the same
+    // fixed default password for every account created here.
+    const registeredUser = await registerUser({
+      name: form.name,
+      email: form.userId,
+      password: DEFAULT_EMPLOYEE_PASSWORD,
+    });
+
+    addEmployee({
+      name: registeredUser?.name ?? form.name,
+      userId: form.userId,
+      role: form.role,
+      status: form.status,
+    });
+    setAlert({
+      type: "success",
+      message: `${form.name} was added successfully.`,
+    });
     setModalOpen(false);
     setEditingEmployee(null);
+    // Errors thrown by registerUser() propagate up to EmployeeFormModal,
+    // which shows them inline and keeps the modal open for another attempt.
   };
 
   const handleDelete = (id) => {

@@ -10,3 +10,7 @@ export const API_BASE_URL =
 
 // localStorage key used to persist the JWT between page reloads.
 export const AUTH_TOKEN_STORAGE_KEY = "ai_tutor_access_token";
+
+// Default password assigned to every employee created via the Settings ->
+// Add Employee flow. They can change it later from their own account.
+export const DEFAULT_EMPLOYEE_PASSWORD = "password@123";

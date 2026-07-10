@@ -1,18 +1,19 @@
 // src/layouts/Navbar/Navbar.jsx
-// Placeholder for Navbar — implement component/logic here.
 
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, Bell, HelpCircle } from "lucide-react";
+import { Search, Bell, HelpCircle, Menu } from "lucide-react";
 import BreadcrumbNav from "./BreadcrumbNav.jsx";
 import UserMenu from "./UserMenu.jsx";
 import { useKeyboardShortcut } from "../../hooks/useKeyboardShortcut.js";
+import { useSidebar } from "../../hooks/useSidebar.js";
 
 export default function Navbar() {
   const searchRef = useRef(null);
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const notificationCount = 6;
+  const { openMobileSidebar } = useSidebar();
 
   useKeyboardShortcut("k", () => searchRef.current?.focus());
 
@@ -24,8 +25,18 @@ export default function Navbar() {
   };
 
   return (
-    <header className="sticky top-0 z-10 h-16 bg-white border-b border-slate-100 px-6 flex items-center justify-between gap-6">
-      <BreadcrumbNav />
+    <header className="sticky top-0 z-10 h-16 bg-white border-b border-slate-100 px-4 sm:px-6 flex items-center justify-between gap-6">
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          type="button"
+          onClick={openMobileSidebar}
+          className="md:hidden shrink-0 p-2 -ml-2 rounded-btn hover:bg-slate-50 transition-colors"
+          aria-label="Open menu"
+        >
+          <Menu className="w-5 h-5 text-slate-600" />
+        </button>
+        <BreadcrumbNav />
+      </div>
 
       <div className="flex items-center gap-3 shrink-0">
         <form

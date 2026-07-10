@@ -1,0 +1,60 @@
+{
+  "isNewUser": false,
+  "quickStats": {
+    "totalTopics": 1284,
+    "topicsTrend": 6.2,
+    "activePipelines": 3,
+    "activePipelinesTrend": null,
+    "storageUsedGB": 42.8,
+    "storageTotalGB": 100,
+    "successRate": 97.4,
+    "successRateTrend": 1.8
+  },
+  "weeklySummary": {
+    "topicsAdded": 46,
+    "pipelinesRun": 9,
+    "avgSuccessRate": 96.8
+  },
+  "recentActivity": [
+    {
+      "id": "act_1",
+      "action": "completed pipeline run for",
+      "description": "Class 12 · Physics · Chapter 1 — 480 files processed",
+      "user": { "name": "Mohit Mali" },
+      "timestamp": "2026-07-10T05:40:00Z",
+      "color": "green"
+    },
+    {
+      "id": "act_2",
+      "action": "edited prompt version",
+      "description": "Master Prompt v4 — Concept Extraction",
+      "user": { "name": "Ananya Rao" },
+      "timestamp": "2026-07-10T03:15:00Z",
+      "color": "primary"
+    },
+    {
+      "id": "act_3",
+      "action": "uploaded a new ZIP batch",
+      "description": "class-12-chemistry-part-2.zip (128 MB)",
+      "user": { "name": "Mohit Mali" },
+      "timestamp": "2026-07-09T19:05:00Z",
+      "color": "purple"
+    },
+    {
+      "id": "act_4",
+      "action": "flagged pipeline failure in",
+      "description": "Class 11 · Biology · Chapter 4 — 16 items failed",
+      "user": { "name": "Devika Shah" },
+      "timestamp": "2026-07-09T14:30:00Z",
+      "color": "red"
+    },
+    {
+      "id": "act_5",
+      "action": "reordered sub-topics for",
+      "description": "Chapter 2: Electrostatic Potential",
+      "user": { "name": "Ananya Rao" },
+      "timestamp": "2026-07-08T22:10:00Z",
+      "color": "orange"
+    }
+  ]
+}

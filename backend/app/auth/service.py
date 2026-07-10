@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.security import create_access_token, hash_password, verify_password
 from app.models.database_models import DashboardActivityLog, DashboardSession, UserProfile
-from app.models.schemas import LoginRequest, RegisterRequest
+from app.models.schemas import LoginRequest, RegisterRequest, UpdateUserRequest
 from app.utils.logger import logger
 
 
@@ -119,4 +119,34 @@ def logout_user(db: Session, profile: UserProfile) -> None:
             description="User logged out",
         )
     )
+    db.commit()
+
+
+def list_users(db: Session) -> list[UserProfile]:
+    return db.query(UserProfile).order_by(UserProfile.created_at.desc()).all()
+
+
+def update_user(db: Session, user_id: uuid.UUID, payload: UpdateUserRequest) -> UserProfile:
+    profile = db.query(UserProfile).filter(UserProfile.id == user_id).first()
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    if payload.full_name is not None:
+        profile.full_name = payload.full_name
+    if payload.role is not None:
+        profile.role = payload.role
+    if payload.is_active is not None:
+        profile.is_active = payload.is_active
+
+    db.commit()
+    db.refresh(profile)
+    return profile
+
+
+def delete_user(db: Session, user_id: uuid.UUID) -> None:
+    profile = db.query(UserProfile).filter(UserProfile.id == user_id).first()
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    db.delete(profile)
     db.commit()

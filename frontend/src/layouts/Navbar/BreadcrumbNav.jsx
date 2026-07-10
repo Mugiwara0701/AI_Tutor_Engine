@@ -1,5 +1,4 @@
 // src/layouts/Navbar/BreadcrumbNav.jsx
-// Placeholder for BreadcrumbNav — implement component/logic here.
 
 import { useLocation, Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
@@ -10,13 +9,25 @@ function findBreadcrumbTrail(pathname) {
     if (item.path === pathname) {
       return [{ label: item.label, path: item.path }];
     }
-    const child = item.children?.find((c) => c.path === pathname);
-    if (child) {
-      return [
-        { label: item.label, path: item.path },
-        { label: child.label, path: child.path },
-      ];
+
+    for (const child of item.children ?? []) {
+      if (child.path === pathname) {
+        return [
+          { label: item.label, path: item.path },
+          { label: child.label, path: child.path },
+        ];
+      }
+
+      const grandchild = child.children?.find((g) => g.path === pathname);
+      if (grandchild) {
+        return [
+          { label: item.label, path: item.path },
+          { label: child.label, path: item.path },
+          { label: grandchild.label, path: grandchild.path },
+        ];
+      }
     }
+
     if (item.children == null && pathname.startsWith(`${item.path}/`)) {
       return [{ label: item.label, path: item.path }];
     }

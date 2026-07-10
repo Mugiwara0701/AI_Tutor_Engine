@@ -1,48 +1,67 @@
 // src/features/settings/hooks/useEmployeeData.js
 //
-// Frontend-only employee/user management state.
-// Everything lives in React state — nothing is persisted or sent to a backend.
+// Employee / user management state, backed by the real backend
+// (/auth/users routes). Loads on mount and keeps local state in sync
+// with each create/update/delete call.
 
-import { useState } from "react";
-import mockEmployees from "../data/mockEmployees.json";
+import { useCallback, useEffect, useState } from "react";
+import {
+  fetchUsers,
+  updateUserRecord,
+  deleteUserRecord,
+} from "../api/employeeApi.js";
 
-let idCounter = mockEmployees.employees.length + 1;
-
-function generateId() {
-  return `emp-${idCounter++}`;
-}
+const ROLE_OPTIONS = ["Admin", "Editor", "Viewer", "Employee", "user"];
+const STATUS_OPTIONS = ["Active", "Inactive"];
 
 export function useEmployeeData() {
-  const [employees, setEmployees] = useState(mockEmployees.employees);
+  const [employees, setEmployees] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
+  const loadEmployees = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const users = await fetchUsers();
+      setEmployees(users);
+    } catch (err) {
+      setError(err.message || "Failed to load employees.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadEmployees();
+  }, [loadEmployees]);
+
+  // Called right after a successful /auth/register call (done by the
+  // caller) — just adds the already-created user into local state instead
+  // of registering it again.
   const addEmployee = (employee) => {
-    const newEmployee = {
-      id: generateId(),
-      createdOn: new Date().toISOString(),
-      ...employee,
-    };
-    setEmployees((prev) => [newEmployee, ...prev]);
-    return newEmployee;
+    setEmployees((prev) => [employee, ...prev]);
   };
 
-  const updateEmployee = (id, updates) => {
+  const updateEmployee = async (id, updates) => {
+    const updated = await updateUserRecord(id, updates);
     setEmployees((prev) =>
-      prev.map((emp) => (emp.id === id ? { ...emp, ...updates } : emp)),
+      prev.map((emp) => (emp.id === id ? { ...emp, ...updated } : emp)),
     );
+    return updated;
   };
 
-  const deleteEmployee = (id) => {
+  const deleteEmployee = async (id) => {
+    await deleteUserRecord(id);
     setEmployees((prev) => prev.filter((emp) => emp.id !== id));
   };
 
-  const toggleStatus = (id) => {
-    setEmployees((prev) =>
-      prev.map((emp) =>
-        emp.id === id
-          ? { ...emp, status: emp.status === "Active" ? "Inactive" : "Active" }
-          : emp,
-      ),
-    );
+  const toggleStatus = async (id) => {
+    const target = employees.find((emp) => emp.id === id);
+    if (!target) return;
+    await updateEmployee(id, {
+      status: target.status === "Active" ? "Inactive" : "Active",
+    });
   };
 
   const isUserIdTaken = (userId, excludeId) =>
@@ -54,12 +73,15 @@ export function useEmployeeData() {
 
   return {
     employees,
-    roleOptions: mockEmployees.roleOptions,
-    statusOptions: mockEmployees.statusOptions,
+    isLoading,
+    error,
+    roleOptions: ROLE_OPTIONS,
+    statusOptions: STATUS_OPTIONS,
     addEmployee,
     updateEmployee,
     deleteEmployee,
     toggleStatus,
     isUserIdTaken,
+    refresh: loadEmployees,
   };
 }

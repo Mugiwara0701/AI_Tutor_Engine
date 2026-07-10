@@ -1,17 +1,17 @@
-// src/router/ProtectedRoute.jsx
-
-import { Navigate } from "react-router-dom";
 import { useAuth } from "../features/auth/hooks/useAuth.js";
-
+import { Navigate } from "react-router-dom";
 export default function ProtectedRoute({ children }) {
   const { user, isRestoring } = useAuth();
 
-  // Still checking whether a stored token corresponds to a valid session
-  // (e.g. right after a page refresh) — avoid a flash-redirect to /login.
   if (isRestoring) {
     return (
-      <div className="flex items-center justify-center h-screen text-sm text-slate-400">
-        Loading…
+      <div className="flex items-center justify-center h-screen bg-bgLight">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center animate-pulse">
+            <span className="text-white font-bold text-sm">M</span>
+          </div>
+          <p className="text-sm text-slate-400">Loading your workspace…</p>
+        </div>
       </div>
     );
   }

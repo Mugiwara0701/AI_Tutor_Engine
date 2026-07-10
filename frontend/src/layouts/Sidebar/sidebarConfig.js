@@ -1,5 +1,4 @@
 // src/layouts/Sidebar/sidebarConfig.js
-// Placeholder for sidebarConfig — implement component/logic here.
 
 import {
   LayoutDashboard,
@@ -28,13 +27,19 @@ export const SIDEBAR_NAV = [
     label: "Library",
     icon: Library,
     path: "/library",
-    children: [
-      { key: "library-all", label: "All Content", path: "/library" },
-      { key: "library-classes", label: "Classes", path: "/library/classes" },
-      { key: "library-subjects", label: "Subjects", path: "/library/subjects" },
-      { key: "library-topics", label: "Topics", path: "/library/topics" },
-      { key: "library-books", label: "Books", path: "/library/books" },
-    ],
+    // children: [
+    //   {
+    //     key: "library-board",
+    //     label: "Board",
+    //     children: [
+    //       {
+    //         key: "library-board-cbse",
+    //         label: "CBSE",
+    //         path: "/library/board/cbse",
+    //       },
+    //     ],
+    //   },
+    // ],
   },
   {
     key: "learning-graph",

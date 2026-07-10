@@ -1,20 +1,23 @@
 // src/features/pipeline-monitor/pages/PipelineMonitorPage.jsx
-// Placeholder for PipelineMonitorPage — implement component/logic here.
 
-// src/features/pipeline-monitor/pages/PipelineMonitorPage.jsx
-
-import { Eye, Plus } from "lucide-react";
+import { useState } from "react";
+import { Eye, Play, Pause } from "lucide-react";
 import { usePipelineData } from "../hooks/usePipelineData.js";
+import { usePipelinesList } from "../hooks/usePipelinesList.js";
 import PipelineSummaryCard from "../components/PipelineSummaryCard.jsx";
 import PipelineStatsRow from "../components/PipelineStatsRow.jsx";
 import PipelineExecutionTable from "../components/PipelineExecutionTable.jsx";
 import PipelineStagesList from "../components/PipelineStagesList.jsx";
 import SystemResourcesPanel from "../components/SystemResourcesPanel.jsx";
 import PipelineActivityLog from "../components/PipelineActivityLog.jsx";
+import AllPipelinesModal from "../components/AllPipelinesModal.jsx";
 
 export default function PipelineMonitorPage() {
   const { pipeline, stages, stats, resources, activityLog, elapsedMinutes } =
     usePipelineData();
+
+  const { pipelines, togglePipeline, startAll, pauseAll } = usePipelinesList();
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
     <div className="flex flex-col gap-5">
@@ -31,6 +34,7 @@ export default function PipelineMonitorPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={() => setIsModalOpen(true)}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-btn border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
           >
             <Eye className="w-4 h-4" />
@@ -38,10 +42,19 @@ export default function PipelineMonitorPage() {
           </button>
           <button
             type="button"
+            onClick={startAll}
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-btn bg-primary text-white text-sm font-medium hover:bg-blue-700 transition-colors"
           >
-            <Plus className="w-4 h-4" />
-            New Pipeline
+            <Play className="w-4 h-4" />
+            Start All
+          </button>
+          <button
+            type="button"
+            onClick={pauseAll}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-btn border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <Pause className="w-4 h-4" />
+            Pause All
           </button>
         </div>
       </div>
@@ -64,6 +77,13 @@ export default function PipelineMonitorPage() {
           <PipelineActivityLog activityLog={activityLog} />
         </div>
       </div>
+
+      <AllPipelinesModal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        pipelines={pipelines}
+        onToggle={togglePipeline}
+      />
     </div>
   );
 }
