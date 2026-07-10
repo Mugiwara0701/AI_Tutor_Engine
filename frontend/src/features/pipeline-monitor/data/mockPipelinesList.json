@@ -2,35 +2,35 @@
   "pipelines": [
     {
       "id": "pl_8f3a2b1c9d",
-      "name": "Class 12 · Physics · Chapter 1",
+      "name": "Pipeline 1",
       "status": "Active",
       "currentStage": "Qwen Generation",
       "progress": 62
     },
     {
       "id": "pl_2a91cd47e3",
-      "name": "Class 11 · Chemistry · Chapter 3",
+      "name": "Pipeline 2",
       "status": "Paused",
       "currentStage": "Validation",
       "progress": 40
     },
     {
       "id": "pl_5b6f10a8c2",
-      "name": "Class 10 · Mathematics · Chapter 5",
+      "name": "Pipeline 3",
       "status": "Active",
       "currentStage": "OCR Processing",
       "progress": 15
     },
     {
       "id": "pl_9e2d84b6f1",
-      "name": "Class 9 · Biology · Chapter 2",
+      "name": "Pipeline 4",
       "status": "Paused",
       "currentStage": "Content Chunking",
       "progress": 55
     },
     {
       "id": "pl_c74a19d3e5",
-      "name": "Class 12 · English · Chapter 4",
+      "name": "Pipeline 5",
       "status": "Active",
       "currentStage": "Prompt Generation",
       "progress": 80
