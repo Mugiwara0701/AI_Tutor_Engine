@@ -91,6 +91,7 @@ from knowledge_graph.build_edges import build_knowledge_graph_edges
 from knowledge_graph.validation import validate_knowledge_graph
 from knowledge_graph.build import generate_knowledge_graph_manifest, generate_knowledge_graph_statistics
 from knowledge_graph.fingerprints import generate_graph_fingerprints
+from knowledge_graph.finalize import finalize_knowledge_graph
 from knowledge_graph.identity import graph_id as kg_graph_id, graph_urn as kg_graph_urn
 from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
 from knowledge_graph import state as kg_state
@@ -1170,6 +1171,42 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     kg_state.set_current_registry_fingerprints(knowledge_graph_registry_fingerprints)
     kg_state.set_current_graph_fingerprint(knowledge_graph_fingerprint)
     kg_state.set_current_knowledge_graph_readiness_report(knowledge_graph_readiness_report)
+    # ---- Phase C4.3: Knowledge Graph Finalization --------------------------
+    # The one integration point: runs immediately after Phase C4.2
+    # fingerprints/readiness above completes (so there is a readiness
+    # report / graph fingerprint to aggregate) -- see
+    # knowledge_graph/finalize.py's own module docstring for exactly what
+    # this does (one deterministic Knowledge Graph Build Summary + one
+    # Final Graph Status (READY / READY_WITH_WARNINGS / FAILED),
+    # aggregating the manifest, statistics, fingerprints, and readiness
+    # report already produced above). Performs no new validation or
+    # readiness checking of its own: the final status is derived only
+    # from `knowledge_graph_validation_report` (Phase C3) and
+    # `knowledge_graph_readiness_report` (Phase C4.2). Never changes the
+    # Knowledge Graph: this call inserts into, updates, or removes from
+    # no graph registry, and neither of its two results is attached to
+    # chapter_dict or reaches json_writer.assemble_chapter_json's output
+    # below -- exactly the same "internal diagnostic, never serialized
+    # into Chapter JSON" treatment every earlier Phase C artifact already
+    # gets above. Stored via knowledge_graph.state (mirroring
+    # compiler_state.set_current_compiler_build_summary()/
+    # set_current_final_compiler_status()'s own "current chapter's
+    # artifacts" pattern one layer down).
+    knowledge_graph_finalization = finalize_knowledge_graph(
+        knowledge_graph_registry_manager,
+        validation_report=knowledge_graph_validation_report,
+        manifest=knowledge_graph_manifest,
+        statistics=knowledge_graph_statistics,
+        registry_fingerprints=knowledge_graph_registry_fingerprints,
+        graph_fingerprint=knowledge_graph_fingerprint,
+        readiness_report=knowledge_graph_readiness_report,
+    )
+    kg_state.set_current_knowledge_graph_build_summary(
+        knowledge_graph_finalization["graph_build_summary"]
+    )
+    kg_state.set_current_final_graph_status(
+        knowledge_graph_finalization["graph_final_status"]
+    )
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),

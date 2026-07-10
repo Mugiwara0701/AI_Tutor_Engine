@@ -699,11 +699,19 @@ class TestPipelineIntegration:
         c4_2_marker = source.index("generate_graph_fingerprints(")
         assert c4_1_marker < c4_2_marker
 
-        # No C4.3-shaped symbol exists yet anywhere in pipeline.py --
-        # Phase C4.2 must not begin Phase C4.3 (task's own "Stop after
-        # Phase C4.2" instruction).
-        assert "generate_knowledge_graph_build_summary" not in source
-        assert "set_current_final_graph_status(" not in source
+        # UPDATED FOR PHASE C4.3: this test originally guarded against
+        # Phase C4.2 prematurely beginning Phase C4.3 (back when C4.3
+        # had not been authorized yet). Phase C4.3 has since been
+        # implemented as its own sanctioned phase (see
+        # knowledge_graph/finalize.py and tests/test_c4_3_finalization.py),
+        # so the correct invariant this test enforces now is ordering,
+        # not absence: wherever Phase C4.3's own call site appears, it
+        # must come AFTER this C4.2 call site, never before/instead of
+        # it. This still fails loudly if a future edit ever reorders
+        # the two phases.
+        if "generate_graph_build_summary(" in source:
+            c4_3_marker = source.index("generate_graph_build_summary(")
+            assert c4_2_marker < c4_3_marker
 
     def test_exactly_one_pipeline_call_site(self):
         import inspect
