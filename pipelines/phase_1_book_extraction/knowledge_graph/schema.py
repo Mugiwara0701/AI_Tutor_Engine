@@ -208,7 +208,33 @@ class KnowledgeGraphValidationReport:
     """Integrity verdict for one Knowledge Graph build -- the Knowledge
     Graph analogue of compiler/validation.py's `ValidationReport`. Field
     set intentionally mirrors that dataclass's own
-    status/errors/warnings/summaries shape."""
+    status/errors/warnings/summaries shape.
+
+    PHASE C3 ADDITION (Knowledge Graph Validation & Integrity): every
+    field above this note is exactly as Phase C0 defined it -- untouched,
+    same name, same meaning, same default. `validation_version`,
+    `generated_at`, `passed_checks`, `failed_checks`, `registry_summary`,
+    and `statistics` are new, additive fields Phase C3's own Task 6
+    report spec requires that Phase C0's speculative schema (written
+    before any concrete validation rule existed) simply didn't anticipate
+    -- the same "frozen phase, additive-only extension" pattern
+    compiler/build.py's own COMPILER_VERSION bump and compiler/state.py's
+    own repeated PHASE B5.1/B5.2/B5.3 ADDITION sections already establish
+    for this project. Safe to extend without a call-site migration:
+    nothing in this codebase constructs a KnowledgeGraphValidationReport
+    with real data before Phase C3 (grep-confirmed -- every prior
+    reference is a type hint or a docstring mention), so there is no
+    existing caller whose behavior this could change.
+
+    `to_dict()` below emits BOTH the original seven keys (unchanged) AND
+    the new ones -- including `overall_status` as an explicit alias of
+    the pre-existing `status` field (same value, Task 6's own literal
+    field name) and `validation_statistics` as the emitted key name for
+    the `statistics` field (Task 6's own literal name for that data) --
+    so a reader expecting either naming convention finds what it's
+    looking for, and nothing that could have depended on the original
+    shape loses any key.
+    """
 
     status: str = "unknown"  # "pass" | "fail" | "unknown"
     errors: List[Dict[str, Any]] = field(default_factory=list)
@@ -217,9 +243,33 @@ class KnowledgeGraphValidationReport:
     edge_summary: Dict[str, Any] = field(default_factory=dict)
     integrity_summary: Dict[str, Any] = field(default_factory=dict)
     determinism_summary: Dict[str, Any] = field(default_factory=dict)
+    # -- Phase C3 additions (see docstring above) --
+    validation_version: str = ""
+    generated_at: str = ""
+    passed_checks: List[str] = field(default_factory=list)
+    failed_checks: List[str] = field(default_factory=list)
+    registry_summary: Dict[str, Any] = field(default_factory=dict)
+    statistics: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return {
+            # -- original Phase C0 keys, unchanged --
+            "status": self.status,
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "node_summary": self.node_summary,
+            "edge_summary": self.edge_summary,
+            "integrity_summary": self.integrity_summary,
+            "determinism_summary": self.determinism_summary,
+            # -- Phase C3 additions --
+            "validation_version": self.validation_version,
+            "generated_at": self.generated_at,
+            "overall_status": self.status,
+            "passed_checks": self.passed_checks,
+            "failed_checks": self.failed_checks,
+            "registry_summary": self.registry_summary,
+            "validation_statistics": self.statistics,
+        }
 
 
 # --------------------------------------------------------------------------

@@ -86,6 +86,13 @@ from compiler.build import generate_compiler_manifest, generate_compiler_statist
 from compiler.fingerprints import generate_compiler_fingerprints
 from compiler.finalize import finalize_compiler_build
 from compiler import state as compiler_state
+from knowledge_graph.build_nodes import build_knowledge_graph_nodes
+from knowledge_graph.build_edges import build_knowledge_graph_edges
+from knowledge_graph.validation import validate_knowledge_graph
+from knowledge_graph.build import generate_knowledge_graph_manifest, generate_knowledge_graph_statistics
+from knowledge_graph.identity import graph_id as kg_graph_id, graph_urn as kg_graph_urn
+from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
+from knowledge_graph import state as kg_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1018,6 +1025,119 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     )
     compiler_state.set_current_compiler_build_summary(compiler_finalization["build_summary"])
     compiler_state.set_current_final_compiler_status(compiler_finalization["final_status"])
+    # ---- Phase C1: Knowledge Graph node construction -----------------------
+    # The one Task 6 integration point: Knowledge Graph node construction
+    # runs after Phase B is fully complete (the compiler build summary/
+    # final status above are the last things Phase B computes for this
+    # chapter) and reads ONLY the now-finished `registry_manager` (Compiler
+    # IR) built above -- see knowledge_graph/build_nodes.py's own module
+    # docstring for exactly what this does (one GraphNodeBase per canonical
+    # object, zero edges). `graph_namespace=chapter_reference` reuses the
+    # same deterministic "<book_slug>:<chapter_slug>" pair every id/urn for
+    # this chapter already uses (see the `chapter_reference` comment
+    # earlier in this function) rather than computing a second namespace.
+    #
+    # Never mutates `registry_manager` or any Compiler IR item inside it,
+    # never touches chapter_dict, and never reaches json_writer.
+    # assemble_chapter_json's output below -- Compiler IR and Educational
+    # JSON are both unchanged by this call, exactly like every Phase B5
+    # artifact above. Stored via knowledge_graph.state (mirroring
+    # compiler_state's own per-chapter "set current, read later" pattern)
+    # rather than compiler_state itself, since this is a distinct,
+    # Knowledge-Graph-layer artifact -- see knowledge_graph/schema.py's own
+    # docstring, which already anticipates `KnowledgeGraph.nodes` being
+    # populated with a GraphRegistryManager instance by a future C1 phase.
+    kg_state.reset_knowledge_graph_state()
+    knowledge_graph_registry_manager = build_knowledge_graph_nodes(
+        registry_manager, graph_namespace=chapter_reference,
+    )
+    # ---- Phase C2: Knowledge Graph edge construction -----------------------
+    # The one Task 6 integration point: runs immediately after Phase C1
+    # node construction above, into the SAME `knowledge_graph_registry_
+    # manager` (never a fresh one -- edges reference node ids that must
+    # already exist in its `nodes` registry) -- see
+    # knowledge_graph/build_edges.py's own module docstring for exactly
+    # what this does (one GraphEdgeBase per Compiler IR relationship,
+    # read from `registry_manager`'s own "relationships" registry, which
+    # `resolve_relationships()` already populated earlier in this same
+    # function -- see that call site above). `graph_namespace=
+    # chapter_reference` reuses the exact same namespace the Phase C1
+    # call above already used, so every node id an edge references here
+    # matches, byte-for-byte, the node id Phase C1 already built it
+    # under.
+    #
+    # Never mutates `registry_manager`, any Compiler IR item inside it,
+    # or the `nodes` registry Phase C1 already populated, and never
+    # touches chapter_dict or json_writer.assemble_chapter_json's output
+    # below -- Compiler IR and Educational JSON are both unchanged by
+    # this call, exactly like the Phase C1 call above.
+    knowledge_graph_registry_manager = build_knowledge_graph_edges(
+        registry_manager, knowledge_graph_registry_manager,
+        graph_namespace=chapter_reference,
+    )
+    knowledge_graph = KnowledgeGraph(
+        metadata=KnowledgeGraphMetadata(
+            graph_id=kg_graph_id(chapter_reference),
+            graph_urn=kg_graph_urn(chapter_reference),
+            source_chapter_identifier=chapter_reference,
+            source_compiler_version=compiler_manifest.get("compiler_version"),
+        ),
+        nodes=knowledge_graph_registry_manager,
+        edges=knowledge_graph_registry_manager,
+    )
+    kg_state.set_current_knowledge_graph(knowledge_graph)
+    # ---- Phase C3: Knowledge Graph validation & integrity ------------------
+    # The one Task 8 integration point: runs immediately after Phase C2
+    # edge construction above completes (so there is a fully-populated
+    # node AND edge registry to validate) -- see
+    # knowledge_graph/validation.py's own validate_knowledge_graph()
+    # docstring for exactly what this does (registry/node/edge/graph
+    # integrity + determinism, folded into one
+    # KnowledgeGraphValidationReport, returned as a plain dict). Passing
+    # `registry_manager` (Compiler IR, already fully built by Phase B
+    # above) as `compiler_registry_manager` enables the optional
+    # cross-checks Task 1 allows "if required for verification only"
+    # (compiler-object reference resolution, expected node/edge counts) --
+    # read-only there too, exactly like the Phase C1/C2 calls above.
+    #
+    # Read-only over `knowledge_graph_registry_manager` and
+    # `registry_manager`: never mutates either, never touches chapter_dict
+    # or json_writer.assemble_chapter_json's output below -- Compiler IR,
+    # Knowledge Graph nodes/edges, and Educational JSON are all unchanged
+    # by this call, exactly like the Phase C1/C2 calls above. Stored via
+    # knowledge_graph.state (mirroring compiler_state.
+    # set_current_validation_report()'s own "current chapter's report"
+    # pattern one layer up).
+    knowledge_graph_validation_report = validate_knowledge_graph(
+        knowledge_graph_registry_manager, compiler_registry_manager=registry_manager,
+    )
+    kg_state.set_current_knowledge_graph_validation_report(knowledge_graph_validation_report)
+    # ---- Phase C4.1: Knowledge Graph Manifest & Statistics -----------------
+    # The one Task 6 integration point: runs immediately after Phase C3
+    # validation above completes (so `knowledge_graph_validation_report`
+    # is available to read counts/summaries from) -- see
+    # knowledge_graph/build.py's own module docstring for exactly what
+    # this does (a small identity/versioning manifest + a larger
+    # descriptive statistics breakdown, both derived from the C3 report
+    # already computed above, plus one bounded pass over the node
+    # registry for the one count C3 doesn't already track). Read-only
+    # over `knowledge_graph_registry_manager` and `knowledge_graph.
+    # metadata`: never mutates either, never touches chapter_dict or
+    # json_writer.assemble_chapter_json's output below -- Compiler IR,
+    # Knowledge Graph nodes/edges, and Educational JSON are all unchanged
+    # by this call, exactly like the Phase C1/C2/C3 calls above. Stored
+    # via knowledge_graph.state (mirroring compiler_state.
+    # set_current_compiler_manifest()/set_current_compiler_statistics()'s
+    # own "current chapter's artifacts" pattern one layer up).
+    knowledge_graph_manifest = generate_knowledge_graph_manifest(
+        knowledge_graph_registry_manager, knowledge_graph_validation_report,
+        knowledge_graph.metadata,
+    )
+    knowledge_graph_statistics = generate_knowledge_graph_statistics(
+        knowledge_graph_registry_manager, knowledge_graph_validation_report,
+    )
+    kg_state.set_current_knowledge_graph_manifest(knowledge_graph_manifest)
+    kg_state.set_current_knowledge_graph_statistics(knowledge_graph_statistics)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
@@ -1045,6 +1165,13 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title, compiler_manifest)
         logger.debug("chapter '%s': compiler statistics — %s",
                      structure.chapter_title, compiler_statistics)
+        logger.debug("chapter '%s': knowledge graph validation — status=%s errors=%d warnings=%d",
+                     structure.chapter_title, knowledge_graph_validation_report["overall_status"],
+                     len(knowledge_graph_validation_report["errors"]), len(knowledge_graph_validation_report["warnings"]))
+        logger.debug("chapter '%s': knowledge graph manifest — %s",
+                     structure.chapter_title, knowledge_graph_manifest)
+        logger.debug("chapter '%s': knowledge graph statistics — %s",
+                     structure.chapter_title, knowledge_graph_statistics)
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,
