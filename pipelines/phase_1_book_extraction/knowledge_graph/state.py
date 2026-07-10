@@ -34,12 +34,24 @@ This module is purely the lifecycle plumbing a future C-phase will use,
 exactly as compiler/state.py was purely plumbing at Phase B0/B1 before
 any later phase actually called its setters with real data.
 
+PHASE C4.2 ADDITION (Knowledge Graph Fingerprints & Readiness): two new
+slots, `_CURRENT_REGISTRY_FINGERPRINTS` and `_CURRENT_GRAPH_FINGERPRINT`,
+are added below -- the same "additive, frozen-phase-safe extension"
+pattern compiler/state.py's own PHASE B5.2 ADDITION already establishes
+one layer down (that module's set_current_registry_fingerprints()/
+set_current_compiler_fingerprint() precedent, reused here unchanged in
+shape). `_CURRENT_KNOWLEDGE_GRAPH_READINESS_REPORT` already existed as
+a Phase C0 placeholder slot (see knowledge_graph/schema.py's
+KnowledgeGraphReadinessReport) and is populated for the first time by
+Phase C4.2 (knowledge_graph/fingerprints.py) -- no new slot or setter
+was needed for it.
+
 Not thread-safe / not concurrency-safe by design, same as
 compiler/state.py's own explicit design note.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from .schema import (
     KnowledgeGraph,
@@ -63,6 +75,9 @@ _CURRENT_KNOWLEDGE_GRAPH_VALIDATION_REPORT: Optional[KnowledgeGraphValidationRep
 _CURRENT_KNOWLEDGE_GRAPH_READINESS_REPORT: Optional[KnowledgeGraphReadinessReport] = None
 _CURRENT_KNOWLEDGE_GRAPH_BUILD_SUMMARY: Optional[KnowledgeGraphBuildSummary] = None
 _CURRENT_FINAL_GRAPH_STATUS: Optional[str] = None
+# -- Phase C4.2 additions (see module docstring's PHASE C4.2 ADDITION) --
+_CURRENT_REGISTRY_FINGERPRINTS: Optional[Dict[str, str]] = None
+_CURRENT_GRAPH_FINGERPRINT: Optional[str] = None
 
 
 # -- KnowledgeGraph ---------------------------------------------------------
@@ -127,6 +142,58 @@ def has_current_knowledge_graph_validation_report() -> bool:
     return _CURRENT_KNOWLEDGE_GRAPH_VALIDATION_REPORT is not None
 
 
+# -- Registry Fingerprints (Phase C4.2) ---------------------------------------
+
+def set_current_registry_fingerprints(fingerprints: Dict[str, str]) -> None:
+    """Called once per chapter by pipeline.py, immediately after
+    knowledge_graph.fingerprints.generate_graph_fingerprints() finishes
+    fingerprinting this chapter's graph registries -- makes the per-
+    registry fingerprints part of Knowledge Graph State, readable by
+    any later, in-process consumer via get_current_registry_
+    fingerprints(), without ever writing them into ChapterJSON. Mirrors
+    compiler_state.set_current_registry_fingerprints()'s own shape one
+    layer down."""
+    global _CURRENT_REGISTRY_FINGERPRINTS
+    _CURRENT_REGISTRY_FINGERPRINTS = fingerprints
+
+
+def get_current_registry_fingerprints() -> Optional[Dict[str, str]]:
+    """Returns the most recently set_current_registry_fingerprints()'d
+    dict, or None if it has not been set (yet) this chapter."""
+    return _CURRENT_REGISTRY_FINGERPRINTS
+
+
+def has_current_registry_fingerprints() -> bool:
+    """True once set_current_registry_fingerprints() has been called
+    and not yet reset."""
+    return _CURRENT_REGISTRY_FINGERPRINTS is not None
+
+
+# -- Knowledge Graph Fingerprint (Phase C4.2) ----------------------------------
+
+def set_current_graph_fingerprint(fingerprint: str) -> None:
+    """Called once per chapter by pipeline.py, immediately after
+    knowledge_graph.fingerprints.generate_graph_fingerprint() derives
+    this chapter's single graph fingerprint -- makes it part of
+    Knowledge Graph State, without ever writing it into ChapterJSON.
+    Mirrors compiler_state.set_current_compiler_fingerprint()'s own
+    shape one layer down."""
+    global _CURRENT_GRAPH_FINGERPRINT
+    _CURRENT_GRAPH_FINGERPRINT = fingerprint
+
+
+def get_current_graph_fingerprint() -> Optional[str]:
+    """Returns the most recently set_current_graph_fingerprint()'d
+    value, or None if it has not been set (yet) this chapter."""
+    return _CURRENT_GRAPH_FINGERPRINT
+
+
+def has_current_graph_fingerprint() -> bool:
+    """True once set_current_graph_fingerprint() has been called and
+    not yet reset."""
+    return _CURRENT_GRAPH_FINGERPRINT is not None
+
+
 # -- KnowledgeGraphReadinessReport --------------------------------------------
 
 def set_current_knowledge_graph_readiness_report(
@@ -188,6 +255,8 @@ def reset_knowledge_graph_state() -> None:
     global _CURRENT_KNOWLEDGE_GRAPH_READINESS_REPORT
     global _CURRENT_KNOWLEDGE_GRAPH_BUILD_SUMMARY
     global _CURRENT_FINAL_GRAPH_STATUS
+    global _CURRENT_REGISTRY_FINGERPRINTS
+    global _CURRENT_GRAPH_FINGERPRINT
     _CURRENT_KNOWLEDGE_GRAPH = None
     _CURRENT_KNOWLEDGE_GRAPH_MANIFEST = None
     _CURRENT_KNOWLEDGE_GRAPH_STATISTICS = None
@@ -195,3 +264,5 @@ def reset_knowledge_graph_state() -> None:
     _CURRENT_KNOWLEDGE_GRAPH_READINESS_REPORT = None
     _CURRENT_KNOWLEDGE_GRAPH_BUILD_SUMMARY = None
     _CURRENT_FINAL_GRAPH_STATUS = None
+    _CURRENT_REGISTRY_FINGERPRINTS = None
+    _CURRENT_GRAPH_FINGERPRINT = None

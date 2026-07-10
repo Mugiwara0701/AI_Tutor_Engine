@@ -90,6 +90,7 @@ from knowledge_graph.build_nodes import build_knowledge_graph_nodes
 from knowledge_graph.build_edges import build_knowledge_graph_edges
 from knowledge_graph.validation import validate_knowledge_graph
 from knowledge_graph.build import generate_knowledge_graph_manifest, generate_knowledge_graph_statistics
+from knowledge_graph.fingerprints import generate_graph_fingerprints
 from knowledge_graph.identity import graph_id as kg_graph_id, graph_urn as kg_graph_urn
 from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
 from knowledge_graph import state as kg_state
@@ -1138,6 +1139,37 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     )
     kg_state.set_current_knowledge_graph_manifest(knowledge_graph_manifest)
     kg_state.set_current_knowledge_graph_statistics(knowledge_graph_statistics)
+    # ---- Phase C4.2: Knowledge Graph Fingerprints & Readiness --------------
+    # The one Task 7 integration point: runs immediately after Phase C4.1
+    # manifest/statistics generation above completes (so there is a
+    # manifest/statistics to fold into the graph fingerprint) and before
+    # any future Phase C4.3 logic -- see knowledge_graph/fingerprints.py's
+    # own module docstring for exactly what this does (per-registry
+    # fingerprints + one overall graph fingerprint + a read-only readiness
+    # verdict, all derived from `knowledge_graph_registry_manager`, the
+    # C4.1 manifest/statistics just generated above, and the Phase C3
+    # validation report). Read-only over `knowledge_graph_registry_
+    # manager`: never mutates it, never touches chapter_dict or
+    # json_writer.assemble_chapter_json's output below -- Compiler IR,
+    # Knowledge Graph nodes/edges, and Educational JSON are all unchanged
+    # by this call, exactly like the Phase C1/C2/C3/C4.1 calls above.
+    # Stored via knowledge_graph.state (mirroring compiler_state.
+    # set_current_registry_fingerprints()/set_current_compiler_
+    # fingerprint()/set_current_compiler_readiness_report()'s own "current
+    # chapter's artifacts" pattern one layer down).
+    knowledge_graph_fingerprint_results = generate_graph_fingerprints(
+        knowledge_graph_registry_manager,
+        manifest=knowledge_graph_manifest,
+        statistics=knowledge_graph_statistics,
+        validation_report=knowledge_graph_validation_report,
+    )
+    knowledge_graph_registry_fingerprints = knowledge_graph_fingerprint_results["registry_fingerprints"]
+    knowledge_graph_fingerprint = knowledge_graph_fingerprint_results["graph_fingerprint"]
+    knowledge_graph_readiness_report = knowledge_graph_fingerprint_results["readiness_report"]
+
+    kg_state.set_current_registry_fingerprints(knowledge_graph_registry_fingerprints)
+    kg_state.set_current_graph_fingerprint(knowledge_graph_fingerprint)
+    kg_state.set_current_knowledge_graph_readiness_report(knowledge_graph_readiness_report)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
@@ -1172,6 +1204,12 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title, knowledge_graph_manifest)
         logger.debug("chapter '%s': knowledge graph statistics — %s",
                      structure.chapter_title, knowledge_graph_statistics)
+        logger.debug("chapter '%s': knowledge graph fingerprint — %s",
+                     structure.chapter_title, knowledge_graph_fingerprint)
+        logger.debug("chapter '%s': knowledge graph readiness — ready=%s passed=%d failed=%d",
+                     structure.chapter_title, knowledge_graph_readiness_report["ready"],
+                     knowledge_graph_readiness_report["readiness_summary"]["passed_count"],
+                     knowledge_graph_readiness_report["readiness_summary"]["failed_count"])
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,

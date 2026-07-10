@@ -357,6 +357,9 @@ class KnowledgeGraphState:
     manifest: Optional[KnowledgeGraphManifest] = None
     statistics: Optional[KnowledgeGraphStatistics] = None
     validation_report: Optional[KnowledgeGraphValidationReport] = None
+    # -- Phase C4.2 additions (knowledge_graph/fingerprints.py) --
+    registry_fingerprints: Optional[Dict[str, str]] = None
+    graph_fingerprint: Optional[str] = None
     readiness_report: Optional[KnowledgeGraphReadinessReport] = None
     build_summary: Optional[KnowledgeGraphBuildSummary] = None
     final_status: Optional[str] = None
@@ -369,6 +372,8 @@ class KnowledgeGraphState:
             "validation_report": (
                 self.validation_report.to_dict() if self.validation_report else None
             ),
+            "registry_fingerprints": self.registry_fingerprints,
+            "graph_fingerprint": self.graph_fingerprint,
             "readiness_report": (
                 self.readiness_report.to_dict() if self.readiness_report else None
             ),
