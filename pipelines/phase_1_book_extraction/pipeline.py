@@ -81,6 +81,7 @@ from compiler.enrichment import enrich_registries
 from compiler.normalization import normalize_registries
 from compiler.references import resolve_references
 from compiler.relationships import resolve_relationships
+from compiler.validation import validate_compiler_state
 from compiler import state as compiler_state
 
 logging.basicConfig(
@@ -848,7 +849,42 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # set_current_registry_manager() so the manager any later phase reads
     # is always the fully enriched-normalized-resolved-and-related one.
     relationship_resolution_stats = resolve_relationships(registry_manager, topics=topics_out)
+    # ---- Phase B4: compiler validation & integrity pass ------------------
+    # Read-only inspection of everything Phases A/B0/B1/B1b/B1c/B2/B3 just
+    # built: registry integrity (unique ids/urns, duplicate lookup keys/
+    # aliases), canonical object integrity (required fields present),
+    # reference integrity (every concept_id/concept_ids/topic_ids/reverse-
+    # aggregation field actually resolves), relationship integrity (every
+    # relationship's source/target exist, type is valid, no duplicates/
+    # orphans), compiler state integrity (every required registry present,
+    # including "relationships"), and determinism validation (id/urn shape,
+    # relationship id recomputation) -- see compiler/validation.py's module
+    # docstring for the full rule set. Never repairs or regenerates
+    # anything (task's own "Do NOT implement automatic repair").
+    #
+    # NOTE the deliberate `compiler_validation_report` name (NOT
+    # `validation_report`): Stage E (above) already binds a
+    # `validation_report` local variable -- the educational-object
+    # duplicate/bare-arithmetic report that DOES flow into
+    # assemble_chapter_json() below. Reusing that name here would
+    # silently shadow it and, worse, would mean whichever report is
+    # assigned last is what assemble_chapter_json() actually receives --
+    # exactly the "relationships/validation leaking into Chapter JSON"
+    # failure mode this whole phase must avoid. Keeping the two names
+    # distinct is what keeps this compiler-only report out of Chapter
+    # JSON's `validation_report` field.
+    #
+    # The resulting report becomes part of the compiler state via
+    # compiler_state.set_current_validation_report() below instead --
+    # an internal compiler diagnostic, never serialized into Chapter
+    # JSON. Runs after resolve_relationships() (so the "relationships"
+    # registry already exists and is fully populated to validate) and
+    # before set_current_registry_manager() so it inspects
+    # `registry_manager` exactly as it will be handed off as this
+    # chapter's compiler IR.
+    compiler_validation_report = validate_compiler_state(registry_manager, topics=topics_out)
     compiler_state.set_current_registry_manager(registry_manager)
+    compiler_state.set_current_validation_report(compiler_validation_report)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
@@ -869,6 +905,9 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title, reference_resolution_stats)
         logger.debug("chapter '%s': relationship resolution — %s",
                      structure.chapter_title, relationship_resolution_stats)
+        logger.debug("chapter '%s': compiler validation — status=%s errors=%d warnings=%d",
+                     structure.chapter_title, compiler_validation_report["status"],
+                     len(compiler_validation_report["errors"]), len(compiler_validation_report["warnings"]))
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,

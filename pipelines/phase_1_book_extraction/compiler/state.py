@@ -59,10 +59,21 @@ Not thread-safe / not concurrency-safe by design, same as
 semantic_processor's equivalent module-level state: this pipeline
 processes one chapter at a time, in one process, exactly like every
 other piece of "current chapter" state already in this codebase.
+
+PHASE B4 ADDITION (Validation & Integrity Pass): the same module-level-
+slot idiom is reused, unmodified, for the compiler validation report
+compiler/validation.py's validate_compiler_state() produces --
+set_current_validation_report() / get_current_validation_report() /
+has_current_validation_report() below are the exact same shape as their
+_CURRENT_REGISTRY_MANAGER equivalents above, and reset_registry_state()
+now clears both slots together (still the one function pipeline.py calls
+once per chapter) so a validation report never survives past the chapter
+it was computed for. This is additive only: nothing above this point was
+changed, no existing function's signature or behavior changed.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from .registry_manager import RegistryManager
 
@@ -105,11 +116,52 @@ def has_current_registry_manager() -> bool:
 
 
 def reset_registry_state() -> None:
-    """Clears the current RegistryManager. Call once per chapter,
-    alongside semantic_processor.reset_chapter_state(), before any
-    per-chapter work starts -- never let one chapter's registries remain
-    "current" while the next chapter is being processed, mirroring
+    """Clears the current RegistryManager (and, since Phase B4, the
+    current validation report -- see module docstring's PHASE B4
+    ADDITION note). Call once per chapter, alongside
+    semantic_processor.reset_chapter_state(), before any per-chapter work
+    starts -- never let one chapter's registries (or validation report)
+    remain "current" while the next chapter is being processed, mirroring
     exactly why reset_chapter_state() exists for the equation-semantics
     cache."""
-    global _CURRENT_REGISTRY_MANAGER
+    global _CURRENT_REGISTRY_MANAGER, _CURRENT_VALIDATION_REPORT
     _CURRENT_REGISTRY_MANAGER = None
+    _CURRENT_VALIDATION_REPORT = None
+
+
+# --------------------------------------------------------------------------
+# Phase B4: current chapter's compiler validation report, set once per
+# chapter by pipeline.py after validate_compiler_state() finishes and
+# cleared by reset_registry_state() above, alongside the registry
+# manager. Exact same idiom as _CURRENT_REGISTRY_MANAGER above -- see
+# module docstring's PHASE B4 ADDITION note.
+# --------------------------------------------------------------------------
+_CURRENT_VALIDATION_REPORT: Optional[Dict[str, Any]] = None
+
+
+def set_current_validation_report(report: Dict[str, Any]) -> None:
+    """Called once per chapter by pipeline.py, right after
+    validate_compiler_state() finishes validating this chapter's
+    RegistryManager -- this is what makes the validation report part of
+    the compiler state (task's own "the validation report should become
+    part of the compiler state" requirement), reachable by any later
+    in-process phase via get_current_validation_report(), without
+    threading it through every function signature and without ever
+    writing it into `manager` itself or into Chapter JSON."""
+    global _CURRENT_VALIDATION_REPORT
+    _CURRENT_VALIDATION_REPORT = report
+
+
+def get_current_validation_report() -> Optional[Dict[str, Any]]:
+    """Returns the most recently set_current_validation_report()'d report
+    dict, or None if none has been set yet in this process (or it has
+    since been cleared by reset_registry_state()). Deliberately returns
+    None rather than raising, for the same reason
+    get_current_registry_manager() does."""
+    return _CURRENT_VALIDATION_REPORT
+
+
+def has_current_validation_report() -> bool:
+    """True once set_current_validation_report() has been called and
+    before the next reset_registry_state() call."""
+    return _CURRENT_VALIDATION_REPORT is not None
