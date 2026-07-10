@@ -97,6 +97,8 @@ from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
 from knowledge_graph import state as kg_state
 from validation.system_integrity import validate_system_integrity
 from validation import state as system_integrity_state
+from validation.determinism import validate_determinism
+from validation import determinism_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1259,6 +1261,47 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         logger.debug("chapter '%s': system integrity — status=%s errors=%d warnings=%d",
                      structure.chapter_title, system_integrity_report["overall_status"],
                      len(system_integrity_report["errors"]), len(system_integrity_report["warnings"]))
+    # ---- Phase D2: Determinism & Reproducibility Validation ----------------
+    # The one Phase D2 integration point: runs immediately after Phase D1
+    # (system_integrity_report above is the last thing Phase D1 computes
+    # for this chapter) -- see validation/determinism.py's own module
+    # docstring for exactly what this does. This is NOT a second System
+    # Integrity pass and does not re-check cross-artifact CONSISTENCY
+    # (D1's job, already done above); it instead re-derives fingerprints/
+    # re-serializes registries/re-canonicalizes manifests, statistics,
+    # build summaries, and the D1 report itself, in-process, and confirms
+    # each reproduces byte-identically -- proving REPRODUCIBILITY, not
+    # correctness.
+    #
+    # Read-only over every argument: no compiler registry and no graph
+    # registry is inserted into, updated, or removed from; no manifest/
+    # statistics/fingerprint/build-summary/System-Integrity-Report dict
+    # anywhere is mutated; nothing here is attached to chapter_dict or
+    # reaches json_writer.assemble_chapter_json's output below -- same
+    # "internal diagnostic, never serialized into Chapter JSON" treatment
+    # system_integrity_report already gets above. Stored via validation.
+    # determinism_state (mirroring validation.state's own "current
+    # chapter's artifacts" pattern).
+    determinism_state.reset_determinism_state()
+    determinism_report = validate_determinism(
+        registry_manager, knowledge_graph_registry_manager,
+        compiler_manifest=compiler_manifest,
+        compiler_statistics=compiler_statistics,
+        compiler_registry_fingerprints=compiler_registry_fingerprints,
+        compiler_fingerprint=compiler_fingerprint,
+        compiler_build_summary=compiler_finalization["build_summary"],
+        knowledge_graph_manifest=knowledge_graph_manifest,
+        knowledge_graph_statistics=knowledge_graph_statistics,
+        knowledge_graph_registry_fingerprints=knowledge_graph_registry_fingerprints,
+        knowledge_graph_fingerprint=knowledge_graph_fingerprint,
+        knowledge_graph_build_summary=knowledge_graph_finalization["graph_build_summary"],
+        system_integrity_report=system_integrity_report,
+    )
+    determinism_state.set_current_determinism_report(determinism_report)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("chapter '%s': determinism — status=%s errors=%d warnings=%d",
+                     structure.chapter_title, determinism_report["overall_status"],
+                     len(determinism_report["errors"]), len(determinism_report["warnings"]))
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),

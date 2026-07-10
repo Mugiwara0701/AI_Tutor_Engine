@@ -151,11 +151,14 @@ that now hold them).
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any, Dict, List, Optional
 
-from compiler.fingerprints import VOLATILE_KEYS
+from canonicalization import (
+    VOLATILE_KEYS,
+    canonical_json as _canonical_json,
+    sha256_hexdigest as _sha256_hexdigest,
+    strip_volatile as _strip_volatile,
+)
 
 from .registries import GRAPH_REGISTRY_NAMES, GraphRegistryManager
 from .schema import KnowledgeGraphReadinessReport
@@ -176,50 +179,19 @@ GRAPH_FINGERPRINT_VERSION = "1.0.0"
 
 
 # --------------------------------------------------------------------------
-# Canonicalization helpers -- identical strategy to compiler/
-# fingerprints.py's own _strip_volatile()/_canonical_json()/
-# _sha256_hexdigest(), reimplemented here (rather than imported) only
-# because those three are module-private (leading underscore) in that
-# module; VOLATILE_KEYS itself -- the one piece of actual, meaningful
-# state ("which key names are volatile") -- IS imported and reused
-# verbatim above, never redeclared. See module docstring's VOLATILE
-# FIELD FILTERING section for why the same constant applies here too.
+# Canonicalization helpers -- now the SAME shared implementation
+# compiler/fingerprints.py and validation/determinism.py also consume
+# (canonicalization.py), imported above under their original
+# module-local names (_strip_volatile/_canonical_json/_sha256_hexdigest)
+# so nothing else in this module needs to change. Previously this module
+# reimplemented these three itself because compiler/fingerprints.py's
+# own copies were module-private; now there is exactly one
+# implementation and all three modules import it. VOLATILE_KEYS itself
+# -- the one piece of actual, meaningful state ("which key names are
+# volatile") -- is imported the same way, from the same shared module,
+# rather than redeclared. See module docstring's VOLATILE FIELD
+# FILTERING section for why the same constant applies here too.
 # --------------------------------------------------------------------------
-
-def _strip_volatile(value: Any) -> Any:
-    """Recursively returns a copy of `value` with every VOLATILE_KEYS
-    entry removed from every dict at every nesting depth. Lists are
-    walked (not sorted -- every list this module ever fingerprints is
-    already produced in a deterministic, insertion/explicit-sort order
-    by its owning phase). Scalars pass through unchanged. Never mutates
-    `value` itself."""
-    if isinstance(value, dict):
-        return {
-            key: _strip_volatile(item)
-            for key, item in value.items()
-            if key not in VOLATILE_KEYS
-        }
-    if isinstance(value, list):
-        return [_strip_volatile(item) for item in value]
-    return value
-
-
-def _canonical_json(value: Any) -> str:
-    """Deterministic JSON text for `value`: volatile fields stripped
-    (see _strip_volatile), keys sorted (so hash-randomized dict
-    iteration order can never affect the result), and a compact, fixed
-    separator style (so incidental whitespace differences never affect
-    the result either)."""
-    return json.dumps(
-        _strip_volatile(value),
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-
-
-def _sha256_hexdigest(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 # --------------------------------------------------------------------------

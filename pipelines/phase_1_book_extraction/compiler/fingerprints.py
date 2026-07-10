@@ -126,11 +126,16 @@ functions in compiler/state.py that hold them).
 """
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from canonicalization import (
+    VOLATILE_KEYS,
+    canonical_json as _canonical_json,
+    sha256_hexdigest as _sha256_hexdigest,
+    strip_volatile as _strip_volatile,
+)
 
 from .registry_manager import RegistryManager
 from .registries import REGISTRY_NAMES
@@ -149,63 +154,16 @@ from .relationships import RELATIONSHIP_REGISTRY_NAME
 # bump should expect a change even for unchanged compiler IR.
 FINGERPRINT_VERSION = "1.0.0"
 
-# Every key name this phase excludes from fingerprinting, at any nesting
-# depth, in any registry item / manifest / statistics dict -- see module
+# VOLATILE_KEYS, _strip_volatile(), _canonical_json(), and
+# _sha256_hexdigest() now live in canonicalization.py (the single shared
+# implementation knowledge_graph/fingerprints.py and validation/
+# determinism.py also consume -- see that module's own docstring) and are
+# imported above under their original names here so every existing
+# `from compiler.fingerprints import VOLATILE_KEYS` (and every internal
+# `_strip_volatile(...)`/`_canonical_json(...)`/`_sha256_hexdigest(...)`
+# call below) continues to work completely unchanged. See module
 # docstring's VOLATILE FIELD FILTERING section for exactly which
-# earlier-phase field each entry corresponds to and why.
-VOLATILE_KEYS = frozenset({
-    "generated_at",             # ValidationReport / CompilerManifest / CompilerStatistics
-    "enriched_at",               # compiler/enrichment.py: registry_metadata.enriched_at
-    "normalized_at",             # compiler/normalization.py: normalization.normalized_at
-    "resolved_at",                # compiler/references.py & compiler/relationships.py
-    "created_at",                 # modules/canonical.py: creation_metadata.created_at
-    "timestamp",                   # modules/canonical.py: provenance.timestamp
-    "approx_memory_bytes",         # compiler/registry.py: RegistryStatistics (memory-derived)
-})
-
-
-# --------------------------------------------------------------------------
-# Canonicalization helpers
-# --------------------------------------------------------------------------
-
-def _strip_volatile(value: Any) -> Any:
-    """Recursively returns a copy of `value` with every VOLATILE_KEYS
-    entry removed from every dict at every nesting depth. Lists are
-    walked (not sorted -- every list this module ever fingerprints is
-    already produced in a deterministic, insertion/explicit-sort order
-    by its owning phase; re-sorting here would be new, unrequested
-    normalization behavior, not fingerprinting). Scalars pass through
-    unchanged. Never mutates `value` itself."""
-    if isinstance(value, dict):
-        return {
-            key: _strip_volatile(item)
-            for key, item in value.items()
-            if key not in VOLATILE_KEYS
-        }
-    if isinstance(value, list):
-        return [_strip_volatile(item) for item in value]
-    return value
-
-
-def _canonical_json(value: Any) -> str:
-    """Deterministic JSON text for `value`: volatile fields stripped
-    (see _strip_volatile), keys sorted (so hash-randomized dict
-    iteration order can never affect the result), and a compact,
-    fixed separator style (so incidental whitespace differences never
-    affect the result either). `default=str` is a defensive fallback
-    only -- every value this module ever fingerprints is already plain
-    JSON-compatible data (CanonicalRegistry.serialize() / the B5.1
-    manifest+statistics dicts), never a live object."""
-    return json.dumps(
-        _strip_volatile(value),
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-
-
-def _sha256_hexdigest(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+# earlier-phase field each VOLATILE_KEYS entry corresponds to and why.
 
 
 # --------------------------------------------------------------------------
