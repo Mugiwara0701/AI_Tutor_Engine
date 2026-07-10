@@ -88,6 +88,7 @@ from compiler.finalize import finalize_compiler_build
 from compiler import state as compiler_state
 from knowledge_graph.build_nodes import build_knowledge_graph_nodes
 from knowledge_graph.build_edges import build_knowledge_graph_edges
+from knowledge_graph.validation import validate_knowledge_graph
 from knowledge_graph.identity import graph_id as kg_graph_id, graph_urn as kg_graph_urn
 from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
 from knowledge_graph import state as kg_state
@@ -1084,6 +1085,32 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         edges=knowledge_graph_registry_manager,
     )
     kg_state.set_current_knowledge_graph(knowledge_graph)
+    # ---- Phase C3: Knowledge Graph validation & integrity ------------------
+    # The one Task 8 integration point: runs immediately after Phase C2
+    # edge construction above completes (so there is a fully-populated
+    # node AND edge registry to validate) -- see
+    # knowledge_graph/validation.py's own validate_knowledge_graph()
+    # docstring for exactly what this does (registry/node/edge/graph
+    # integrity + determinism, folded into one
+    # KnowledgeGraphValidationReport, returned as a plain dict). Passing
+    # `registry_manager` (Compiler IR, already fully built by Phase B
+    # above) as `compiler_registry_manager` enables the optional
+    # cross-checks Task 1 allows "if required for verification only"
+    # (compiler-object reference resolution, expected node/edge counts) --
+    # read-only there too, exactly like the Phase C1/C2 calls above.
+    #
+    # Read-only over `knowledge_graph_registry_manager` and
+    # `registry_manager`: never mutates either, never touches chapter_dict
+    # or json_writer.assemble_chapter_json's output below -- Compiler IR,
+    # Knowledge Graph nodes/edges, and Educational JSON are all unchanged
+    # by this call, exactly like the Phase C1/C2 calls above. Stored via
+    # knowledge_graph.state (mirroring compiler_state.
+    # set_current_validation_report()'s own "current chapter's report"
+    # pattern one layer up).
+    knowledge_graph_validation_report = validate_knowledge_graph(
+        knowledge_graph_registry_manager, compiler_registry_manager=registry_manager,
+    )
+    kg_state.set_current_knowledge_graph_validation_report(knowledge_graph_validation_report)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
@@ -1111,6 +1138,9 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title, compiler_manifest)
         logger.debug("chapter '%s': compiler statistics — %s",
                      structure.chapter_title, compiler_statistics)
+        logger.debug("chapter '%s': knowledge graph validation — status=%s errors=%d warnings=%d",
+                     structure.chapter_title, knowledge_graph_validation_report["overall_status"],
+                     len(knowledge_graph_validation_report["errors"]), len(knowledge_graph_validation_report["warnings"]))
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,
