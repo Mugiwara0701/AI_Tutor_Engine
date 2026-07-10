@@ -87,6 +87,7 @@ from compiler.fingerprints import generate_compiler_fingerprints
 from compiler.finalize import finalize_compiler_build
 from compiler import state as compiler_state
 from knowledge_graph.build_nodes import build_knowledge_graph_nodes
+from knowledge_graph.build_edges import build_knowledge_graph_edges
 from knowledge_graph.identity import graph_id as kg_graph_id, graph_urn as kg_graph_urn
 from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
 from knowledge_graph import state as kg_state
@@ -1048,6 +1049,30 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     knowledge_graph_registry_manager = build_knowledge_graph_nodes(
         registry_manager, graph_namespace=chapter_reference,
     )
+    # ---- Phase C2: Knowledge Graph edge construction -----------------------
+    # The one Task 6 integration point: runs immediately after Phase C1
+    # node construction above, into the SAME `knowledge_graph_registry_
+    # manager` (never a fresh one -- edges reference node ids that must
+    # already exist in its `nodes` registry) -- see
+    # knowledge_graph/build_edges.py's own module docstring for exactly
+    # what this does (one GraphEdgeBase per Compiler IR relationship,
+    # read from `registry_manager`'s own "relationships" registry, which
+    # `resolve_relationships()` already populated earlier in this same
+    # function -- see that call site above). `graph_namespace=
+    # chapter_reference` reuses the exact same namespace the Phase C1
+    # call above already used, so every node id an edge references here
+    # matches, byte-for-byte, the node id Phase C1 already built it
+    # under.
+    #
+    # Never mutates `registry_manager`, any Compiler IR item inside it,
+    # or the `nodes` registry Phase C1 already populated, and never
+    # touches chapter_dict or json_writer.assemble_chapter_json's output
+    # below -- Compiler IR and Educational JSON are both unchanged by
+    # this call, exactly like the Phase C1 call above.
+    knowledge_graph_registry_manager = build_knowledge_graph_edges(
+        registry_manager, knowledge_graph_registry_manager,
+        graph_namespace=chapter_reference,
+    )
     knowledge_graph = KnowledgeGraph(
         metadata=KnowledgeGraphMetadata(
             graph_id=kg_graph_id(chapter_reference),
@@ -1056,7 +1081,7 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             source_compiler_version=compiler_manifest.get("compiler_version"),
         ),
         nodes=knowledge_graph_registry_manager,
-        edges=None,
+        edges=knowledge_graph_registry_manager,
     )
     kg_state.set_current_knowledge_graph(knowledge_graph)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.

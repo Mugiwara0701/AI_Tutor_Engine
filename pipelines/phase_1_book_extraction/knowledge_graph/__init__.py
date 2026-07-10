@@ -145,6 +145,24 @@ from .build_nodes import (
     build_node,
     build_knowledge_graph_nodes,
 )
+from .edges import (
+    EDGE_CLASSES_VERSION,
+    EDGE_CLASSES,
+    HasDefinitionEdge,
+    ExplainsEdge,
+    DescribedByEdge,
+    ContainsEdge,
+    AppearsInEdge,
+    BelongsToEdge,
+    UsesConceptEdge,
+    IllustratesEdge,
+    TeachesEdge,
+)
+from .build_edges import (
+    EDGE_BUILDER_VERSION,
+    build_edge,
+    build_knowledge_graph_edges,
+)
 from . import state as state
 
 __all__ = [
@@ -223,5 +241,19 @@ __all__ = [
     "NODE_TYPE_BY_COMPILER_REGISTRY",
     "build_node",
     "build_knowledge_graph_nodes",
+    "EDGE_CLASSES_VERSION",
+    "EDGE_CLASSES",
+    "HasDefinitionEdge",
+    "ExplainsEdge",
+    "DescribedByEdge",
+    "ContainsEdge",
+    "AppearsInEdge",
+    "BelongsToEdge",
+    "UsesConceptEdge",
+    "IllustratesEdge",
+    "TeachesEdge",
+    "EDGE_BUILDER_VERSION",
+    "build_edge",
+    "build_knowledge_graph_edges",
     "state",
 ]
