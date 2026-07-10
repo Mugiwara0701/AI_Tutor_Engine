@@ -80,6 +80,7 @@ from compiler.registries import create_registry_manager, populate_registries
 from compiler.enrichment import enrich_registries
 from compiler.normalization import normalize_registries
 from compiler.references import resolve_references
+from compiler.relationships import resolve_relationships
 from compiler import state as compiler_state
 
 logging.basicConfig(
@@ -826,6 +827,27 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # compiler/references.py's verify_topic_references) -- topic dicts
     # themselves are never mutated by this call.
     reference_resolution_stats = resolve_references(registry_manager, topics=topics_out)
+    # ---- Phase B3: canonical semantic relationship resolution -----------
+    # Turns the references B2 just resolved (definition_id/glossary_id's
+    # own concept_id, each item's own Phase-A topic_ids, and each topic's
+    # own already-Phase-A-resolved `concepts` list) into explicit, typed
+    # Relationship records (has_definition / explains / described_by /
+    # contains / appears_in / belongs_to / uses_concept / illustrates /
+    # teaches) -- see compiler/relationships.py's module docstring for
+    # the full generation rules and its MOST IMPORTANT REQUIREMENT
+    # section. Relationships are stored ONLY in their own dedicated
+    # "relationships" registry on `registry_manager` (created here,
+    # on-demand, by resolve_relationships() itself) -- an internal
+    # compiler-IR artifact, exactly like every other registry above.
+    # They are NEVER attached to concepts/definitions/.../chapter_dict
+    # and NEVER reach json_writer.assemble_chapter_json's output (called
+    # further below) -- Phase C is what will consume this registry
+    # directly via compiler.state.get_current_registry_manager(), not the
+    # Chapter JSON file. Runs after resolve_references() (so concept_id/
+    # concept_ids/topic_ids are already present to read) and before
+    # set_current_registry_manager() so the manager any later phase reads
+    # is always the fully enriched-normalized-resolved-and-related one.
+    relationship_resolution_stats = resolve_relationships(registry_manager, topics=topics_out)
     compiler_state.set_current_registry_manager(registry_manager)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
@@ -845,6 +867,8 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title, registry_manager.statistics())
         logger.debug("chapter '%s': reference resolution — %s",
                      structure.chapter_title, reference_resolution_stats)
+        logger.debug("chapter '%s': relationship resolution — %s",
+                     structure.chapter_title, relationship_resolution_stats)
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,
