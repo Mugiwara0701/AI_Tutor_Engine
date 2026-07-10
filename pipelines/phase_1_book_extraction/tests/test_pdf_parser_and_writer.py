@@ -16,14 +16,56 @@ pipeline:
    json_out/Class_<klass>/<Subject>/<Book_Name>/...
 
 None of these touch the Chapter JSON schema itself.
+
+TEST-INFRASTRUCTURE NOTE (bugfix, not a behavior change): the two
+`test_chapter_output_path_*` tests below used to call
+json_writer.chapter_output_path(..., output_root=str(tmp_path)) and then
+inspect the local filesystem under `tmp_path`. That stopped matching
+reality once json_writer.py's output moved entirely onto OneDrive (see
+config.py: "JSON_OUTPUT_FOLDER ... it no longer names a local directory
+that gets written to directly") -- book_output_dir() now always calls
+through `storage.OneDriveStorage` (real network + real MSAL auth) even
+when `output_root` is a plain local path string, and never uses
+`output_root` to build a Class/Subject/Book hierarchy under it (see that
+function's own docstring: "output_root ... is NOT a place to inject the
+book name again"). So the old tests were silently making real Microsoft
+Graph API calls with a Windows filesystem path as the "remote" path,
+which fails outright off this project's network and is meaningless even
+when it happens not to fail. Fixed here by injecting a lightweight fake
+OneDriveStorage (mirrors tests/test_migration.py's own FakeStorage
+pattern) via json_writer's existing set_storage() extension point, and
+asserting on the returned OneDrive-relative path STRING instead of a
+real filesystem path -- no production code's behavior changed, only how
+these two tests observe it.
 """
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import config
 from modules.pdf_parser import Line, detect_chapter_title, auto_detect_subject, find_toc_lines
 from modules import json_writer
+from storage.path_resolver import PathResolver
+
+
+class _FakeOneDriveStorage:
+    """Minimal stand-in for storage.OneDriveStorage, implementing only
+    the two methods json_writer.book_output_dir() actually calls
+    (resolve_path() / create_directory()) -- no MSAL/Graph/network
+    involved. Reuses the real PathResolver (not a hand-rolled copy) so
+    the exact Class_/Title_Case formatting this test asserts on is the
+    same logic production code uses, not a duplicate guess at it."""
+
+    def __init__(self):
+        self._resolver = PathResolver()
+        self.created_dirs = []
+
+    def resolve_path(self, board, klass, subject, book=None):
+        return self._resolver.resolve(board, klass, subject, book)
+
+    def create_directory(self, path):
+        self.created_dirs.append(path)
 
 
 def _line(text, size=10.0, page=0, y=100.0, bold=False):
@@ -96,27 +138,28 @@ def test_find_toc_lines_returns_empty_and_does_not_raise_when_absent():
 #    with no duplicated/mis-ordered book-name segment
 # ---------------------------------------------------------------------------
 
-def test_chapter_output_path_builds_class_subject_book_hierarchy(tmp_path):
+def test_chapter_output_path_builds_class_subject_book_hierarchy(monkeypatch):
+    monkeypatch.setattr(json_writer, "_storage_singleton", _FakeOneDriveStorage())
     out_path = json_writer.chapter_output_path(
         klass="12", subject="business studies", book_slug="business-studies-part-1",
         chapter_number=1, chapter_title="Nature and Significance of Management",
-        output_root=str(tmp_path),
     )
-    rel = os.path.relpath(out_path, str(tmp_path))
-    parts = rel.split(os.sep)
-    assert parts[0] == "Class_12"
-    assert parts[1] == "Business_Studies"
-    assert parts[2] == "Business_Studies_Part_1"
-    assert parts[3] == "01_nature-and-significance-of-management.json"
+    parts = out_path.split("/")
+    assert parts[0] == "AI_TUTOR"
+    assert parts[1] == config.STORAGE_BOARD
+    assert parts[2] == "Class_12"
+    assert parts[3] == "Business_Studies"
+    assert parts[4] == "Business_Studies_Part_1"
+    assert parts[5] == "json_out"
+    assert parts[6] == "01_nature-and-significance-of-management.json"
 
 
-def test_chapter_output_path_has_no_duplicated_book_segment(tmp_path):
+def test_chapter_output_path_has_no_duplicated_book_segment(monkeypatch):
     # Regression guard for the book_orchestrator + json_writer double-nesting
     # bug: the book name must appear exactly once in the resulting path.
+    monkeypatch.setattr(json_writer, "_storage_singleton", _FakeOneDriveStorage())
     out_path = json_writer.chapter_output_path(
         klass="12", subject="science", book_slug="business",
         chapter_number=1, chapter_title="1",
-        output_root=str(tmp_path),
     )
-    rel = os.path.relpath(out_path, str(tmp_path))
-    assert rel.lower().count("business") == 1
+    assert out_path.lower().count("business") == 1

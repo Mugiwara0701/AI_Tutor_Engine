@@ -557,11 +557,16 @@ class TestEnrichRegistries:
                 assert "registry_metadata" in item
                 assert item["registry_metadata"]["registry_name"] == registry.name
 
-    def test_enrich_registries_covers_all_twelve_registry_names(self):
+    def test_enrich_registries_covers_all_thirteen_registry_names(self):
+        # 12 original Phase B1 registries + "topics" (Phase C0.1
+        # audit-findings refinement) -- enrich_registries() needs no code
+        # change to cover it; it already iterates every registry the
+        # manager owns generically (see compiler/registries.py's own
+        # "TOPIC REGISTRY" docstring section).
         manager = create_registry_manager()
         counts = enrich_registries(manager)
         assert set(counts.keys()) == set(manager.names())
-        assert len(counts) == 12
+        assert len(counts) == 13
 
 
 # --------------------------------------------------------------------------

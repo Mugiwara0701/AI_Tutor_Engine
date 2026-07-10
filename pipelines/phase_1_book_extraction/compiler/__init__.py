@@ -68,6 +68,7 @@ from .exceptions import (
     RegistrySerializationError,
 )
 from .registries import (
+    TopicRegistry,
     ConceptRegistry,
     DefinitionRegistry,
     GlossaryRegistry,
@@ -193,6 +194,7 @@ __all__ = [
     "DuplicateNameError",
     "ItemNotFoundError",
     "RegistrySerializationError",
+    "TopicRegistry",
     "ConceptRegistry",
     "DefinitionRegistry",
     "GlossaryRegistry",

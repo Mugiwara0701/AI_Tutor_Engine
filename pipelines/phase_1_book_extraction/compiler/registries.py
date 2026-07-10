@@ -1,5 +1,8 @@
 """
 compiler/registries.py — Phase B1: concrete canonical registries.
+(Phase C0.1 audit-findings refinement: adds `TopicRegistry` -- see the
+"TOPIC REGISTRY (Phase C0.1)" section near the end of this docstring
+for why, and why it does not change Chapter JSON.)
 
 This module is the thin, type-specific layer Phase B0's module docstring
 (compiler/registry.py) already anticipated: one CanonicalRegistry
@@ -43,7 +46,10 @@ every canonical object dict pipeline.py builds already has "id" and
 directly for definitions/concepts/glossary, or via the
 pipeline._attach_canonical() helper for every other type) -- so
 CanonicalRegistry's default id_of/urn_of (dict.get("id") / dict.get(
-"urn")) already work for all twelve types with no customization.
+"urn")) already work for all twelve types with no customization. The
+thirteenth, `topics` (Phase C0.1), is populated with canonical-enveloped
+copies for the same reason (see "TOPIC REGISTRY" section above), so the
+same defaults work for it too.
 
 `name_of` is more subtle and is deliberately LEFT AT THE DEFAULT
 (dict.get("name")) for every registry below, including the ones whose
@@ -120,6 +126,50 @@ No code changed as a result of this review -- the twelve classes are
 kept exactly as originally implemented; this entry exists so the
 decision (and its reasoning) is recorded rather than re-litigated at the
 next phase boundary.
+
+TOPIC REGISTRY (Phase C0.1 audit-findings refinement): an independent
+architecture audit of Phase C0 found that Topics -- unlike every one of
+the twelve types above -- had no RegistryManager-owned registry at all;
+they existed only as pipeline.py's local `topics_out` list. This module
+now also defines `TopicRegistry` (name="topics"), constructed the exact
+same way as every class above (a two-line CanonicalRegistry subclass,
+no overridden behavior), and registered by create_registry_manager()
+alongside the other twelve.
+
+WHY populate_registries()'s new `topics` argument takes
+ALREADY-CANONICAL-ENVELOPED items, unlike how pipeline.py builds the
+other eleven: pipeline.py's own `topics_out` list (its topic dicts) is
+deliberately NOT wrapped in `canonical.canonical_fields()` -- it is
+serialized into Chapter JSON exactly as Phase A built it, and every one
+of Phase B1b (enrichment) / B1c (normalization) / B2 (references) / B4
+(validation) mutates registry items IN PLACE, in a way that -- for the
+other eleven types -- is intentionally visible in Chapter JSON too
+(same dict objects; see compiler/enrichment.py's own module docstring).
+Doing that to `topics_out` itself would add new keys to every topic in
+Chapter JSON, which is an explicit non-goal of this refinement pass
+("Educational JSON remains unchanged" / "Preserve backward
+compatibility"). So `populate_registries()` -- and, above it,
+pipeline.py's own Phase B1 integration point -- insert a separate,
+canonical-enveloped **copy** of each topic (built via the same
+`canonical.canonical_fields()` every other type already uses,
+object_type="topic") into TopicRegistry, while `topics_out` itself,
+and therefore Chapter JSON, is never touched. This is the one place
+Topic's registry population deliberately diverges from the other eleven
+types' "insert a reference, never a copy" pattern -- see
+populate_registries()'s own docstring for the precise contract.
+
+This means B1b/B1c/B2/B4 do not need a single line changed to already
+cover TopicRegistry correctly: they already iterate every registry
+`RegistryManager` owns generically (by name/by manager iteration, never
+a hardcoded eleven- or twelve-item list), and already treat an
+unrecognized `object_type` gracefully (e.g.
+compiler/enrichment.py's own `EDUCATIONAL_ROLE_BY_OBJECT_TYPE.get(...,
+None)` -- "maps to None rather than raising"), so a thirteenth,
+canonical-shaped registry is handled by the existing, frozen B1b-B4
+machinery with zero code changes there. Only this module (registry
+definition + population) and pipeline.py (building the canonical
+snapshot + the new `topics=` call-site argument) change -- see Task 1
+of the C0.1 audit-findings resolution for the full reasoning.
 """
 from __future__ import annotations
 
@@ -136,6 +186,17 @@ from .registry_manager import RegistryManager
 # docstring for why id_of/urn_of/name_of are all left at their B0
 # defaults.
 # --------------------------------------------------------------------------
+
+
+class TopicRegistry(CanonicalRegistry):
+    """One record per detected topic/heading (see pipeline.py's
+    `topics_out`). Added in the Phase C0.1 audit-findings refinement --
+    see this module's "TOPIC REGISTRY" docstring section above for why
+    the items inserted here are canonical-enveloped COPIES of
+    `topics_out`'s own dicts, not the same references."""
+
+    def __init__(self) -> None:
+        super().__init__(name="topics")
 
 
 class ConceptRegistry(CanonicalRegistry):
@@ -234,6 +295,7 @@ class WarningRegistry(CanonicalRegistry):
 # first built in pipeline.py, purely so RegistryManager.names() /
 # serialize() output is stable and easy to eyeball against pipeline.py.
 _REGISTRY_CLASSES: "Dict[str, type]" = {
+    "topics": TopicRegistry,
     "definitions": DefinitionRegistry,
     "concepts": ConceptRegistry,
     "glossary": GlossaryRegistry,
@@ -269,6 +331,7 @@ def create_registry_manager() -> RegistryManager:
 def populate_registries(
     manager: RegistryManager,
     *,
+    topics: Optional[Iterable[Dict[str, Any]]] = None,
     concepts: Optional[Iterable[Dict[str, Any]]] = None,
     definitions: Optional[Iterable[Dict[str, Any]]] = None,
     glossary: Optional[Iterable[Dict[str, Any]]] = None,
@@ -292,7 +355,17 @@ def populate_registries(
     Every argument is optional and defaults to inserting nothing for
     that type, so partial population (e.g. in a focused unit test, or a
     --no-vlm dry run that produces empty glossary/concepts lists) is
-    just as valid as populating all twelve at once.
+    just as valid as populating all thirteen at once.
+
+    `topics`, unlike every other argument here, is expected to already
+    be a list of canonical-enveloped COPIES of pipeline.py's own
+    `topics_out` dicts (built via `canonical.canonical_fields()`,
+    object_type="topic") -- NOT `topics_out` itself. See this module's
+    own "TOPIC REGISTRY" docstring section for why: `topics_out` is
+    what Chapter JSON serializes, and later phases (enrichment,
+    normalization, reference resolution, validation) mutate registry
+    items in place, so inserting `topics_out`'s own dicts here would
+    leak those mutations into Chapter JSON.
 
     This is purely additive bookkeeping: it reads each object dict,
     inserts a reference to it into a registry, and returns the same
@@ -311,8 +384,11 @@ def populate_registries(
     so a raise here surfaces a genuine upstream id/urn collision rather
     than a registry-layer false positive (see module docstring for why
     name-collisions specifically are not a concern for eleven of the
-    twelve types).
+    twelve Phase B1 types; `topics` (Phase C0.1) is likewise never a
+    concern here -- topic dicts have no "name" key either, so its
+    default `name_of` also always returns None).
     """
+    _insert_all(manager, "topics", topics)
     _insert_all(manager, "concepts", concepts)
     _insert_all(manager, "definitions", definitions)
     _insert_all(manager, "glossary", glossary)

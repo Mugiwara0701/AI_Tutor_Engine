@@ -751,6 +751,13 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # passed into json_writer.assemble_chapter_json below -- so registry
     # population never introduces its own ordering.
     #
+    # C0.1 audit-findings refinement (Task 1): `topics` is now also a
+    # first-class registry (TopicRegistry) here, populated from a
+    # canonical-enveloped snapshot copy of `topics_out`, not `topics_out`
+    # itself -- see the comment right above `registry_manager =` below and
+    # compiler/registries.py's own "TOPIC REGISTRY" docstring section for
+    # why a copy, not a shared reference, is used only for this one type.
+    #
     # This is purely an INTERNAL compiler representation for this Phase B1
     # milestone: registry_manager is not attached to chapter_dict, not
     # written into the Chapter JSON -- the compiler continues to build the
@@ -767,9 +774,40 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # authoritative source for all later compiler phases" per the Phase
     # B1 task objective, without yet changing pipeline.py's output
     # contract.
+    # C0.1 audit-findings refinement (Task 1): `topics_out` itself is
+    # deliberately left untouched (it is what json_writer.assemble_chapter_json
+    # serializes below, byte-for-byte unchanged by this refinement -- see
+    # compiler/registries.py's own "TOPIC REGISTRY" docstring section for
+    # the full reasoning). What TopicRegistry receives instead is a
+    # separate, canonical-enveloped SNAPSHOT COPY of each topic -- built
+    # the exact same way concepts/glossary build their own envelope
+    # in-loop above (canonical.canonical_fields(), object_type="topic") --
+    # so later phases (B1b enrichment / B1c normalization / B2 references /
+    # B4 validation), which mutate registry items in place, only ever
+    # mutate this snapshot, never `topics_out`/Chapter JSON.
+    topic_registry_items: List[Dict[str, Any]] = [
+        {
+            **canonical.canonical_fields(
+                object_id=t["id"], object_type="topic", namespace=canonical_namespace,
+                urn_parts=["topic", t["id"]], subject=structure.subject,
+                chapter_reference=chapter_reference, topic_ids=[],
+                concept_ids=list(t.get("concepts") or []),
+                source_page=t.get("page_start"), source_heading=t.get("title"),
+                extraction_stage="pipeline.process_chapter:topic_registry_snapshot",
+                extraction_method="deterministic", confidence=t.get("confidence", 0.5),
+            ),
+            "title": t.get("title"), "numbering": t.get("numbering"), "level": t.get("level"),
+            "parent": t.get("parent"), "children": list(t.get("children") or []),
+            "page_start": t.get("page_start"), "page_end": t.get("page_end"),
+            "concepts": list(t.get("concepts") or []),
+            "concept_names": list(t.get("concept_names") or []),
+        }
+        for t in topics_out
+    ]
     registry_manager = create_registry_manager()
     populate_registries(
         registry_manager,
+        topics=topic_registry_items,
         concepts=all_concepts, definitions=definitions, glossary=glossary,
         figures=figures, diagrams=diagrams, tables=tables, equations=equations,
         activities=activities, boxes=boxes, warnings=warnings_list, notes=notes,

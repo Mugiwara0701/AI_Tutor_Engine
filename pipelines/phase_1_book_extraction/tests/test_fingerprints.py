@@ -72,13 +72,33 @@ def make_definition(id_="d1", term="Photosynthesis", topic_ids=None, **extra):
 def build_full_compiler_state(concept_name="Photosynthesis", topics=None):
     """Runs the full B1-B5.1 pipeline over a small, realistic fixture and
     returns (manager, manifest, statistics, validation_report) -- the
-    four inputs Phase B5.2's functions expect."""
+    four inputs Phase B5.2's functions expect.
+
+    The fixture's one Definition uses a term ("Unrelated Term") that
+    deliberately never matches any `concept_name` this file passes in
+    (Photosynthesis / Respiration / A / B) -- see
+    TestRegistryFingerprints.test_unaffected_registries_keep_same_fingerprint,
+    which asserts that changing ONLY the concepts registry's content
+    leaves the definitions registry's fingerprint unchanged. If the
+    definition's term instead matched `concept_name` (as a naive fixture
+    might do by reusing the same default string for both), compiler/
+    references.py's own resolve_references() would resolve that
+    definition's `concept_id` differently depending on `concept_name` --
+    correctly, since the definition's own content-relevant `concept_id`
+    field really would differ -- which would make "definitions" look
+    "affected" for a reason that has nothing to do with what this test is
+    actually checking (per-registry fingerprint isolation). Keeping the
+    term concept-name-independent keeps the definition's resolution
+    status (and therefore its content) identical across every
+    concept_name this file uses, so its fingerprint is a true "did this
+    registry's own content change" signal.
+    """
     topics = topics if topics is not None else []
     manager = create_registry_manager()
     populate_registries(
         manager,
         concepts=[make_concept(name=concept_name)],
-        definitions=[make_definition()],
+        definitions=[make_definition(term="Unrelated Term")],
     )
     enrich_registries(manager)
     normalize_registries(manager)

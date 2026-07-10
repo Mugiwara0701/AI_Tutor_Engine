@@ -12,6 +12,7 @@ import json
 import pytest
 
 from compiler import (
+    TopicRegistry,
     ConceptRegistry,
     DefinitionRegistry,
     GlossaryRegistry,
@@ -225,10 +226,14 @@ class TestVisualAndEquationRegistries:
 # create_registry_manager()
 # --------------------------------------------------------------------------
 class TestCreateRegistryManager:
-    def test_creates_all_twelve_registries(self):
+    def test_creates_all_thirteen_registries(self):
+        # 12 original Phase B1 registries + "topics" (Phase C0.1
+        # audit-findings refinement -- see compiler/registries.py's own
+        # "TOPIC REGISTRY" docstring section).
         manager = create_registry_manager()
         assert set(manager.names()) == set(REGISTRY_NAMES)
-        assert len(manager) == 12
+        assert len(manager) == 13
+        assert isinstance(manager.get("topics"), TopicRegistry)
 
     def test_every_registry_starts_empty(self):
         manager = create_registry_manager()

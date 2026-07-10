@@ -138,8 +138,17 @@ def discover_local_files(local_root: str) -> List[LocalFile]:
 
 
 def _remote_path(storage: OneDriveStorage, board: str, lf: LocalFile) -> str:
+    """Builds the OneDrive-relative destination path for one migrated
+    file. Must match the layout modules/json_writer.py's own
+    book_output_dir() writes to -- AI_TUTOR/<board>/Class_<klass>/
+    <Subject>/<Book>/json_out/<file> (see this module's own docstring's
+    worked example) -- otherwise a freshly-migrated file would land next
+    to, not inside, the same book folder json_writer.py resumes writing
+    to on the very next run, and is_already_extracted()/resumable
+    extraction would never see it as already present.
+    """
     book_dir = storage.resolve_path(board, lf.klass, lf.subject, lf.book)
-    return f"{book_dir}/{lf.filename}"
+    return f"{book_dir}/json_out/{lf.filename}"
 
 
 def _upload_and_verify(storage: OneDriveStorage, remote_path: str, data: bytes) -> bool:

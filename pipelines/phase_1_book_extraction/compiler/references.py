@@ -123,16 +123,25 @@ OUTPUT FIELDS (additive only -- see task's OUTPUT FIELDS section):
                         resolved_at  : ISO-8601 UTC timestamp
 
 TOPIC -> CONCEPT RESOLUTION (see task's "Topic -> Contained Concept
-IDs" example): Topics are NOT one of compiler/registries.py's twelve
-RegistryManager-owned registries (see compiler/registries.py --
-deliberately so; see that module's own docstring) and their
-concept-linking was already implemented, correctly and deterministically,
-in Phase A (pipeline.py's topic-construction loop: each topic's
-`concept_names` list, gathered from semantic_processor's per-topic
-output, is resolved against a chapter-wide `concept_name_to_id` map
-into the topic's own `concepts` field -- see pipeline.py around the
-`concept_registry`/`this_topic_concept_ids` code). That is frozen,
-correct, working code this task explicitly says not to redesign.
+IDs" example): a topic's own concept-linking was already implemented,
+correctly and deterministically, in Phase A (pipeline.py's
+topic-construction loop: each topic's `concept_names` list, gathered
+from semantic_processor's per-topic output, is resolved against a
+chapter-wide `concept_name_to_id` map into the topic's own `concepts`
+field -- see pipeline.py around the `concept_registry`/
+`this_topic_concept_ids` code). That is frozen, correct, working code
+this task explicitly says not to redesign -- this module's
+verify_topic_references()/resolve_topic_concept_ids() below remain the
+authoritative, read-only parity check for it, unchanged.
+
+(Phase C0.1 audit-findings refinement: `topics` is now also a
+RegistryManager-owned registry -- see compiler/registries.py's own
+"TOPIC REGISTRY" docstring section -- but it holds a canonical-enveloped
+SNAPSHOT COPY of each topic, not pipeline.py's own `topics_out` dicts.
+resolve_registries() below still iterates it generically like every
+other registry [it's just one more name in `manager.names()`], but that
+is orthogonal to, and does not replace or duplicate, the Phase-A
+resolution / this module's read-only verification described above.)
 `resolve_topic_concept_ids` / `verify_topic_references` below exist so
 Topic -> Concept resolution goes through this SAME centralized lookup
 index as every other reference type (the task's own "avoid duplicated
