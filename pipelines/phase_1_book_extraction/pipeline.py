@@ -89,6 +89,7 @@ from compiler import state as compiler_state
 from knowledge_graph.build_nodes import build_knowledge_graph_nodes
 from knowledge_graph.build_edges import build_knowledge_graph_edges
 from knowledge_graph.validation import validate_knowledge_graph
+from knowledge_graph.build import generate_knowledge_graph_manifest, generate_knowledge_graph_statistics
 from knowledge_graph.identity import graph_id as kg_graph_id, graph_urn as kg_graph_urn
 from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
 from knowledge_graph import state as kg_state
@@ -1111,6 +1112,32 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         knowledge_graph_registry_manager, compiler_registry_manager=registry_manager,
     )
     kg_state.set_current_knowledge_graph_validation_report(knowledge_graph_validation_report)
+    # ---- Phase C4.1: Knowledge Graph Manifest & Statistics -----------------
+    # The one Task 6 integration point: runs immediately after Phase C3
+    # validation above completes (so `knowledge_graph_validation_report`
+    # is available to read counts/summaries from) -- see
+    # knowledge_graph/build.py's own module docstring for exactly what
+    # this does (a small identity/versioning manifest + a larger
+    # descriptive statistics breakdown, both derived from the C3 report
+    # already computed above, plus one bounded pass over the node
+    # registry for the one count C3 doesn't already track). Read-only
+    # over `knowledge_graph_registry_manager` and `knowledge_graph.
+    # metadata`: never mutates either, never touches chapter_dict or
+    # json_writer.assemble_chapter_json's output below -- Compiler IR,
+    # Knowledge Graph nodes/edges, and Educational JSON are all unchanged
+    # by this call, exactly like the Phase C1/C2/C3 calls above. Stored
+    # via knowledge_graph.state (mirroring compiler_state.
+    # set_current_compiler_manifest()/set_current_compiler_statistics()'s
+    # own "current chapter's artifacts" pattern one layer up).
+    knowledge_graph_manifest = generate_knowledge_graph_manifest(
+        knowledge_graph_registry_manager, knowledge_graph_validation_report,
+        knowledge_graph.metadata,
+    )
+    knowledge_graph_statistics = generate_knowledge_graph_statistics(
+        knowledge_graph_registry_manager, knowledge_graph_validation_report,
+    )
+    kg_state.set_current_knowledge_graph_manifest(knowledge_graph_manifest)
+    kg_state.set_current_knowledge_graph_statistics(knowledge_graph_statistics)
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
@@ -1141,6 +1168,10 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         logger.debug("chapter '%s': knowledge graph validation — status=%s errors=%d warnings=%d",
                      structure.chapter_title, knowledge_graph_validation_report["overall_status"],
                      len(knowledge_graph_validation_report["errors"]), len(knowledge_graph_validation_report["warnings"]))
+        logger.debug("chapter '%s': knowledge graph manifest — %s",
+                     structure.chapter_title, knowledge_graph_manifest)
+        logger.debug("chapter '%s': knowledge graph statistics — %s",
+                     structure.chapter_title, knowledge_graph_statistics)
 
     chapter_dict = json_writer.assemble_chapter_json(
         structure=structure, pdf_path=pdf_path, topics_semantic=topics_out, concepts=all_concepts,
