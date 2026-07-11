@@ -708,11 +708,21 @@ class TestPipelineWiring:
         call_block = source[call_start:call_end]
         assert "namespace=chapter_reference" in call_block
 
-    def test_e5_1_never_calls_e5_2_or_phase_f(self):
+    def test_e5_1_never_calls_phase_f(self):
         import inspect
         import pipeline
         source = inspect.getsource(pipeline.process_chapter)
-        assert "finalize_incremental_compilation" not in source
+        # UPDATED for Phase E5.2 (see tests/test_e5_2_incremental_compilation_
+        # finalization.py): at the time this file was originally written,
+        # E5.2 did not yet exist, and this test additionally asserted
+        # "finalize_incremental_compilation" was absent from pipeline.py --
+        # that assumption no longer holds now that E5.2 has been
+        # legitimately implemented and wired in immediately after this same
+        # Phase E5.1 call site (see test_e5_2_incremental_compilation_
+        # finalization.py::TestPipelineWiring for E5.2's own pipeline-wiring
+        # coverage). What this test still guards -- Phase F (an actual
+        # compilation executor) never being invoked from process_chapter --
+        # remains true and unchanged.
         assert "execute_compilation" not in source
 
 
