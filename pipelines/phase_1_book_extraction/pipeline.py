@@ -62,6 +62,7 @@ import sys
 import time
 import glob
 import logging
+from datetime import datetime, timezone
 import argparse
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -101,6 +102,8 @@ from validation.determinism import validate_determinism
 from validation import determinism_state
 from validation.release import finalize_release
 from validation import release_state
+from build_metadata.build import finalize_build_metadata
+from build_metadata import state as build_metadata_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1352,6 +1355,59 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title, release_finalization["release_status"],
                      len(release_finalization["release_readiness_report"]["errors"]),
                      len(release_finalization["release_readiness_report"]["warnings"]))
+    # ---- Phase E1: Build Metadata --------------------------------------------
+    # The one Phase E1 integration point: runs immediately after Phase D3
+    # (release_finalization above is the last thing Phase D3 computes for
+    # this chapter) and is the LAST artifact computed before Chapter JSON
+    # is assembled below. This is NOT a fourth validation/determinism/
+    # readiness pass and does not re-check anything any earlier phase
+    # already checked; it instead AGGREGATES every already-computed
+    # Phase B-D3 artifact, plus this chapter's own operational
+    # (CompilationMetadata) and deterministic-configuration
+    # (ConfigurationMetadata/VersionMetadata) details, into one
+    # BuildMetadata record.
+    #
+    # Read-only over every argument: no compiler registry and no graph
+    # registry is inserted into, updated, or removed from; no manifest/
+    # statistics/fingerprint/readiness-report/build-summary/validation-
+    # report/System-Integrity-Report/Determinism-Report/Release-
+    # Readiness-Report anywhere is mutated; nothing here is attached to
+    # chapter_dict or reaches json_writer.assemble_chapter_json's output
+    # below -- same "internal diagnostic, never serialized into Chapter
+    # JSON" treatment release_finalization already gets above. Stored via
+    # build_metadata.state (mirroring validation.release_state's own
+    # "current chapter's artifact" pattern one artifact over).
+    build_metadata_state.reset_build_metadata_state()
+    build_metadata_result = finalize_build_metadata(
+        compiler_manifest=compiler_manifest,
+        compiler_statistics=compiler_statistics,
+        compiler_registry_fingerprints=compiler_registry_fingerprints,
+        compiler_fingerprint=compiler_fingerprint,
+        compiler_readiness_report=compiler_readiness_report,
+        compiler_build_summary=compiler_finalization["build_summary"],
+        final_compiler_status=compiler_finalization["final_status"],
+        knowledge_graph_manifest=knowledge_graph_manifest,
+        knowledge_graph_statistics=knowledge_graph_statistics,
+        knowledge_graph_registry_fingerprints=knowledge_graph_registry_fingerprints,
+        knowledge_graph_fingerprint=knowledge_graph_fingerprint,
+        knowledge_graph_readiness_report=knowledge_graph_readiness_report,
+        knowledge_graph_build_summary=knowledge_graph_finalization["graph_build_summary"],
+        final_graph_status=knowledge_graph_finalization["graph_final_status"],
+        release_status=release_finalization["release_status"],
+        pdf_path=pdf_path,
+        compilation_start=datetime.fromtimestamp(t0, tz=timezone.utc),
+        compilation_end=datetime.now(timezone.utc),
+        processing_time_seconds=extraction_logs["processing_time"],
+        use_vlm=use_vlm,
+        page_batch_size=page_batch_size,
+        force=force,
+    )
+    build_metadata_state.set_current_build_metadata(build_metadata_result["build_metadata"])
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("chapter '%s': build metadata — compiler_fingerprint=%s graph_fingerprint=%s "
+                     "configuration_fingerprint=%s",
+                     structure.chapter_title, compiler_fingerprint, knowledge_graph_fingerprint,
+                     build_metadata_result["build_metadata"]["configuration_metadata"]["configuration_fingerprint"])
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
     # every registry's contents (see registry.py's _estimate_memory_bytes),
