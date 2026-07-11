@@ -108,6 +108,8 @@ from dependency_graph.build import generate_dependency_graph
 from dependency_graph import state as dependency_graph_state
 from change_detection.engine import detect_changes
 from change_detection import state as change_detection_state
+from incremental_compilation.engine import plan_incremental_compilation
+from incremental_compilation import state as incremental_compilation_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1519,6 +1521,55 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             change_detection_result["change_detection_report"]["summary"]["modified_count"],
             change_detection_result["change_detection_report"]["summary"]["affected_count"],
             change_detection_result["change_detection_report"]["summary"]["unchanged_count"],
+        )
+    # ---- Phase E4: Incremental Compilation ------------------------------------
+    # The one Phase E4 integration point: runs immediately after Phase E3
+    # (change_detection_result above is the last thing Phase E3 computes
+    # for this chapter) and is now the LAST artifact computed before
+    # Chapter JSON is assembled below -- placed after E3 and before Phase
+    # E5 (Validation & Finalization of this plan, not yet implemented), per
+    # this integration point's own placement rule. This does NOT execute
+    # any rebuild, does NOT cache anything, and does NOT decide to skip a
+    # build step on its own -- it only reads Phase E3's own
+    # ChangeDetectionReport and Phase E2's own DependencyGraph and reports
+    # which artifacts a rebuild would need to touch, in what order. See
+    # incremental_compilation/engine.py's own module docstring for the
+    # exact shape it encodes.
+    #
+    # Read-only over every argument: no compiler registry, graph registry,
+    # or dependency-graph registry is inserted into, updated, or removed
+    # from; no manifest/statistics/fingerprint/readiness-report/build-
+    # summary/BuildMetadata/DependencyGraph/ChangeDetectionReport dict
+    # anywhere is mutated; nothing here is attached to chapter_dict or
+    # reaches json_writer.assemble_chapter_json's output below -- same
+    # "internal diagnostic, never serialized into Chapter JSON" treatment
+    # change_detection_result already gets above. `namespace=
+    # chapter_reference` reuses the exact same namespace already used to
+    # build this chapter's Knowledge Graph, Dependency Graph, and Change
+    # Detection Report graph_id/graph_urn/namespace earlier in this
+    # function, rather than computing a second one. Stored via
+    # incremental_compilation.state (mirroring change_detection.state's
+    # own "current chapter's artifact" pattern one artifact over).
+    incremental_compilation_state.reset_incremental_compilation_state()
+    incremental_compilation_result = plan_incremental_compilation(
+        namespace=chapter_reference,
+        change_detection_report=change_detection_result["change_detection_report"],
+        dependency_graph=dependency_graph_result["dependency_graph"],
+        build_metadata=build_metadata_result["build_metadata"],
+    )
+    incremental_compilation_state.set_current_incremental_compilation_plan(
+        incremental_compilation_result["incremental_compilation_plan"]
+    )
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "chapter '%s': incremental compilation — dirty=%d affected=%d "
+            "rebuild=%d clean=%d removed=%d",
+            structure.chapter_title,
+            incremental_compilation_result["incremental_compilation_plan"]["summary"]["dirty_count"],
+            incremental_compilation_result["incremental_compilation_plan"]["summary"]["affected_count"],
+            incremental_compilation_result["incremental_compilation_plan"]["summary"]["rebuild_count"],
+            incremental_compilation_result["incremental_compilation_plan"]["summary"]["clean_count"],
+            incremental_compilation_result["incremental_compilation_plan"]["summary"]["removed_count"],
         )
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
