@@ -106,6 +106,8 @@ from build_metadata.build import finalize_build_metadata
 from build_metadata import state as build_metadata_state
 from dependency_graph.build import generate_dependency_graph
 from dependency_graph import state as dependency_graph_state
+from change_detection.engine import detect_changes
+from change_detection import state as change_detection_state
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1459,6 +1461,64 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             structure.chapter_title,
             dependency_graph_result["dependency_graph"]["metadata"]["node_count"],
             dependency_graph_result["dependency_graph"]["metadata"]["edge_count"],
+        )
+    # ---- Phase E3: Change Detection -------------------------------------------
+    # The one Phase E3 integration point: runs immediately after Phase E2
+    # (dependency_graph_result above is the last thing Phase E2 computes
+    # for this chapter) and is now the LAST artifact computed before
+    # Chapter JSON is assembled below. This does NOT rebuild anything and
+    # does NOT decide what should be rebuilt (that is Phase E4's
+    # Incremental Compilation, not this integration point's concern) --
+    # it only compares this chapter's current build against a previous
+    # build's fingerprint snapshot and reports what changed. See
+    # change_detection/engine.py's own module docstring for the exact
+    # shape it encodes.
+    #
+    # `previous_build=None`: this codebase has no persistence layer yet
+    # (explicitly out of Phase E3's own scope -- see change_detection/
+    # __init__.py's own "NO PERSISTENCE" note), so there is currently no
+    # source for a previous run's snapshot to pass in here. Every
+    # artifact this chapter's build produces is therefore reported as
+    # "added" until a future, out-of-scope phase supplies a real
+    # `previous_build` (shaped exactly like this call's own
+    # `current_build_snapshot` return value -- see change_detection/
+    # snapshot.py's own module docstring) at this same call site.
+    #
+    # Read-only over every argument: no compiler registry, graph
+    # registry, or dependency-graph registry is inserted into, updated,
+    # or removed from; no manifest/statistics/fingerprint/readiness-
+    # report/build-summary/BuildMetadata/DependencyGraph dict anywhere is
+    # mutated; nothing here is attached to chapter_dict or reaches
+    # json_writer.assemble_chapter_json's output below -- same "internal
+    # diagnostic, never serialized into Chapter JSON" treatment
+    # dependency_graph_result already gets above. `namespace=
+    # chapter_reference` reuses the exact same namespace already used to
+    # build this chapter's Knowledge Graph and Dependency Graph
+    # graph_id/graph_urn earlier in this function, rather than computing
+    # a second one. Stored via change_detection.state (mirroring
+    # dependency_graph.state's own "current chapter's artifact" pattern
+    # one artifact over).
+    change_detection_state.reset_change_detection_state()
+    change_detection_result = detect_changes(
+        namespace=chapter_reference,
+        dependency_graph=dependency_graph_result["dependency_graph"],
+        build_metadata=build_metadata_result["build_metadata"],
+        release_readiness_report=release_finalization["release_readiness_report"],
+        previous_build=None,
+    )
+    change_detection_state.set_current_change_detection_report(
+        change_detection_result["change_detection_report"]
+    )
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "chapter '%s': change detection — added=%d removed=%d modified=%d "
+            "affected=%d unchanged=%d",
+            structure.chapter_title,
+            change_detection_result["change_detection_report"]["summary"]["added_count"],
+            change_detection_result["change_detection_report"]["summary"]["removed_count"],
+            change_detection_result["change_detection_report"]["summary"]["modified_count"],
+            change_detection_result["change_detection_report"]["summary"]["affected_count"],
+            change_detection_result["change_detection_report"]["summary"]["unchanged_count"],
         )
     # Diagnostic only, and deliberately guarded: RegistryStatistics.
     # approx_memory_bytes does a real (shallow) sys.getsizeof() scan over
