@@ -34,6 +34,8 @@ from dataclasses import dataclass
 import fitz  # PyMuPDF
 
 from modules import language_detector
+from modules.ocr_cleanup import clean_ocr_text
+from modules.pdf_parser import clean_extracted_text
 
 logger = logging.getLogger("ncert_pipeline.ocr")
 
@@ -57,7 +59,14 @@ class PageOCRResult:
 
 
 def _text_layer_for_page(doc: fitz.Document, pno: int) -> str:
-    return doc[pno].get_text("text")
+    # NORMALIZATION PARITY FIX: this reads the exact same text layer
+    # pdf_parser.extract_lines() reads (page.get_text(...)), but was a
+    # second, independent call site that skipped clean_extracted_text()'s
+    # NFC-normalization/invisible-char-strip entirely. Applying it here
+    # too keeps ocr_engine's text-layer results (used both as the
+    # returned page text and as recovery-prompt context) on the same
+    # normalization footing as every other born-digital text field.
+    return clean_extracted_text(doc[pno].get_text("text"))
 
 
 def _ocr_lang_fallback_chain(tess_lang: str) -> list:
@@ -112,7 +121,11 @@ def _tesseract_ocr_page(doc: fitz.Document, pno: int, lang: str = "en", dpi: int
 
         words = [w for w in data.get("text", []) if w.strip()]
         confs = [int(c) for c, w in zip(data.get("conf", []), data.get("text", [])) if w.strip() and c != "-1"]
-        text = " ".join(words)
+        # Pipeline order: Unicode Normalization (NFC + invisible-char
+        # strip) first, then OCR-specific content cleanup (ligatures/
+        # whitespace/punctuation/merged words) -- same order every other
+        # text field in the pipeline follows.
+        text = clean_ocr_text(clean_extracted_text(" ".join(words)))
         avg_conf = (sum(confs) / len(confs) / 100.0) if confs else 0.0
         engine_name = "tesseract" if candidate_lang == tess_lang else f"tesseract_fallback_{candidate_lang}"
         return PageOCRResult(page=pno, text=text, confidence=round(avg_conf, 3), engine=engine_name,

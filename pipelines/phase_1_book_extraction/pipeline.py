@@ -1912,10 +1912,12 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
             print(f"✗ Chapter failed: {e}")
         print("-" * 40)
 
+    book_manifest_path = None
     if written and book_ctx.toc:
         book_slug = slugify(book_ctx.book_title)
-        json_writer.write_book_manifest(book_ctx.klass, book_ctx.subject, book_slug,
-                                         book_ctx.book_title, book_ctx.toc, output_root=output_root)
+        book_manifest_path = json_writer.write_book_manifest(
+            book_ctx.klass, book_ctx.subject, book_slug,
+            book_ctx.book_title, book_ctx.toc, output_root=output_root)
 
     logger.info("Done. %d chapter JSON file(s) written, %d failed.", len(written), failed)
     stats = {"found": total, "written": len(written), "failed": failed, "book_title": book_ctx.book_title}
@@ -1925,6 +1927,17 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
         # None) never see this key, so the returned dict shape they rely on
         # is unchanged.
         stats["cancelled"] = True
+    # Additive keys (Phase F2, artifact_manager/): the AI_TUTOR-relative
+    # paths this call itself just wrote via json_writer, so a caller above
+    # pipeline.py (book_orchestrator.run() already returns this dict
+    # unchanged; CompilerRuntime/artifact_manager reads it one layer up
+    # still) can build a real, comprehensive Build Manifest artifact_
+    # locations list without re-deriving any path json_writer already
+    # computed. Same "only ever present additively" contract as
+    # `cancelled` above -- existing callers that only ever read found/
+    # written/failed/book_title are unaffected.
+    stats["written_paths"] = list(written)
+    stats["book_manifest_path"] = book_manifest_path
     return stats
 
 

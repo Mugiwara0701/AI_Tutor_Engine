@@ -346,65 +346,103 @@ def repair_extra_data(text: str, error: json.JSONDecodeError) -> Optional[str]:
 # Stage 3 — LaTeX / math / chemistry / physics notation repairs
 # ===========================================================================
 # Any backslash NOT already forming a valid JSON escape (\" \\ \/ \b \f \n
-# \r \t \uXXXX) is almost certainly the start of a LaTeX command (\frac,
-# \sqrt, \text, \left, \right, \sum, \int, \alpha, \rightarrow, \Delta,
-# \times, \cdot, \pm, \leq, \geq, \neq, ...) or a chemistry/physics
-# shorthand escape (\ce, \isotope, ...). Doubling it is meaning-preserving:
-# the model always intends a literal backslash character here, never an
-# actual JSON control escape.
-_INVALID_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrtu])')
+# \r \t \uXXXX -- and \uXXXX only counts when 4 real hex digits follow) is
+# almost certainly the start of a LaTeX command (\frac, \sqrt, \text,
+# \left, \right, \sum, \int, \alpha, \rightarrow, \Delta, \times, \cdot,
+# \pm, \leq, \geq, \neq, ...) or a chemistry/physics shorthand escape
+# (\ce, \isotope, ...). Doubling it is meaning-preserving: the model
+# always intends a literal backslash character here, never an actual JSON
+# control escape. This is syntax-driven (valid-JSON-escape grammar), not a
+# LaTeX command whitelist -- any command not starting with b/f/n/r/t/u
+# (\alpha, \times, \substack, \boxed, \overrightarrow, or any future
+# command) is already caught here with no enumeration required.
+_INVALID_ESCAPE_RE = re.compile(r'\\(?!["\\/bfnrt]|u[0-9a-fA-F]{4})')
 
-# Named LaTeX command families explicitly called out by the task spec.
-# IMPORTANT COLLISION NOTE: _INVALID_ESCAPE_RE above only catches
-# backslashes that are NOT already followed by one of JSON's own valid
-# escape letters (b, f, n, r, t, u). But several extremely common LaTeX
-# commands *start* with exactly those letters -- \frac, \forall, \nabla,
-# \neq, \notin, \rightarrow, \right, \rho, \tan, \theta, \times, \to,
-# \underline, \uparrow, \bar, \beta, \binom, ... -- so json.loads would
-# otherwise silently consume "\f"/"\r"/"\n"/"\t"/"\b"/"\u..." as its own
-# (wrong) control-character escape and mangle the rest of the command name
-# into the string's literal content (e.g. "\frac" -> form-feed + "rac").
-# These must be double-escaped FIRST, before the generic pass below, using
-# a lookahead so only the colliding backslash itself is touched.
+# COLLISION NOTE: _INVALID_ESCAPE_RE above treats \b \f \n \r \t \uXXXX as
+# already-valid JSON escapes and leaves them alone -- correct for a
+# genuine escape, but several extremely common LaTeX commands *start*
+# with exactly those letters (\frac, \forall, \nabla, \neq, \notin,
+# \rightarrow, \right, \rho, \tan, \theta, \times, \to, \underline,
+# \uparrow, \bar, \beta, \binom, \boxed, \substack -- and any future
+# command spelled the same way). Left alone, json.loads wouldn't even
+# raise here -- it would "succeed" by silently consuming e.g. "\f" as a
+# form-feed control character and leaving "rac{...}" behind as corrupted
+# literal text. These have to be double-escaped FIRST, before the generic
+# pass above, using a lookahead so only the colliding backslash itself is
+# touched.
+#
+# WHY THIS ISN'T (AND CAN'T FULLY BE) A PURE SYNTAX RULE: a first attempt
+# at this pattern used "backslash + [bfnrt] + another letter, no
+# enumeration at all". That over-fired on completely ordinary, valid
+# content: genuine escaped text such as "line one\nline two" has \n
+# followed immediately by more letters ("line") with no separator -- a
+# real, common shape, not an edge case. Distinguishing "\n" (a newline,
+# followed by prose) from "\nabla" (a command) is not decidable from
+# local syntax alone; it requires recognizing the word as a command.
+# Rather than pretend otherwise, this is split into two parts:
+#
+#   1. GENERIC / SYNTAX-BASED (no enumeration): a backslash followed by
+#      one of b/f/n/r/t/u and then more letters and then an IMMEDIATE
+#      `{` is a group-taking command -- \frac{, \binom{, \boxed{,
+#      \underset{, \underline{, or any future b/f/n/r/t/u-prefixed
+#      command with an argument group. Genuine prose escapes (\n, \t, a
+#      real \uXXXX) are essentially never followed immediately by a
+#      literal `{`, so this generalizes to any current or future
+#      group-taking command with no enumeration and no false positives
+#      on ordinary escaped text.
+#   2. A small, explicit, EXPLICITLY NOT EXHAUSTIVE set of well-
+#      established operators/symbols that also collide but are
+#      conventionally used WITHOUT a following group (\tan x, \to,
+#      \theta, \nabla f, ...), so rule 1's brace signal can't catch
+#      them. This list exists only because that specific ambiguity has
+#      no syntax-only answer -- it is not relied on for brace-balancing
+#      (repair_malformed_latex_groups below is fully generic) and does
+#      not need to be exhaustive for the group-taking case (1) to keep
+#      working on any unknown/future command.
+_COLLIDING_BRACELESS_OPERATORS = (
+    "rightarrow", "notin", "nabla", "theta", "times", "right",
+    "forall", "neq", "rho", "tan", "to", "beta", "tau", "bmod",
+)
+_braceless_alt = "|".join(
+    sorted(_COLLIDING_BRACELESS_OPERATORS, key=len, reverse=True))
 
-# These already get correctly repaired by the generic _INVALID_ESCAPE_RE
-# doubling above; this frozenset exists so repair_latex_backslashes' docstring
-# and any future targeted per-command repair can refer to the exact set
-# the task asked to cover, without duplicating logic.
-KNOWN_LATEX_COMMANDS = frozenset({
-    "frac", "sqrt", "text", "left", "right", "sum", "int", "prod", "lim",
-    "rightarrow", "leftarrow", "Rightarrow", "Leftrightarrow", "to",
-    "alpha", "beta", "gamma", "delta", "Delta", "theta", "lambda", "mu",
-    "sigma", "Sigma", "omega", "Omega", "pi", "phi", "psi", "chi", "eta",
-    "times", "cdot", "div", "pm", "mp", "leq", "geq", "neq", "approx",
-    "equiv", "propto", "infty", "partial", "nabla", "vec", "hat", "bar",
-    "dot", "overline", "underline", "subset", "supset", "in", "notin",
-    "forall", "exists", "cup", "cap", "emptyset", "ce", "mathrm",
-    "mathbf", "mathit", "circ", "degree", "angle", "perp", "parallel",
-})
-
-# Subset of KNOWN_LATEX_COMMANDS whose first letter collides with one of
-# JSON's own valid string escapes (b, f, n, r, t, u) -- see the collision
-# note above. Longest-first alternation so e.g. "rightarrow" is matched in
-# full rather than stopping at a shorter overlapping prefix.
-_COLLIDING_LATEX_COMMANDS = sorted(
-    (c for c in KNOWN_LATEX_COMMANDS if c[:1] in "bfnrtu"), key=len, reverse=True)
+# IDEMPOTENCY GUARD: `(?<!\\)` -- once a colliding backslash has been
+# doubled (by this same pass, or an earlier one, e.g. the unconditional
+# pre-pass in repair_and_parse followed by this function running again at
+# Stage 5 when a *different* part of the text still fails to parse), the
+# second backslash of that now-correct pair must never be re-matched as a
+# "new" collision -- doing so would triple-escape it and corrupt the
+# content. The lookbehind restricts matches to a backslash that is not
+# itself preceded by another backslash, so an already-fixed `\\beta` is
+# left untouched on every subsequent pass.
 _COLLIDING_LATEX_RE = re.compile(
-    r"\\(?=(?:" + "|".join(_COLLIDING_LATEX_COMMANDS) + r")\b)") if _COLLIDING_LATEX_COMMANDS else None
+    r"(?<!\\)\\(?="
+    r"[bfnrt][A-Za-z]*\{"                  # \frac{, \binom{, \boxed{, ... (any command, any length)
+    r"|u(?![0-9a-fA-F]{4})[A-Za-z]*\{"     # \underset{, \underline{, ... (not a real \uXXXX escape)
+    r"|(?:" + _braceless_alt + r")\b"      # small explicit set of common brace-less operators
+    r")"
+)
 
 
 def repair_latex_backslashes(text: str) -> str:
-    """Escapes bare backslashes that introduce LaTeX commands (\\frac,
+    """Escapes bare backslashes that introduce a LaTeX command (\\frac,
     \\sqrt, \\text, \\left, \\right, \\sum, \\int, arrows, greek letters,
-    operators, ...) or chemistry notation (\\ce{...}) so json.loads no
-    longer sees an 'Invalid \\escape' -- or worse, silently swallows a
+    operators, \\binom, \\boxed, \\substack, \\overrightarrow, or any
+    other/future command) or chemistry notation (\\ce{...}) so json.loads
+    no longer sees an 'Invalid \\escape' -- or worse, silently swallows a
     colliding one (\\frac, \\right, \\neq, ...) as its own valid-but-wrong
-    control-character escape. Every backslash the model emits in this
-    context is intended literally, so doubling only these ones (already
-    -valid JSON escapes like a genuine \\n line break are left untouched)
-    never changes meaning."""
-    if _COLLIDING_LATEX_RE is not None:
-        text = _COLLIDING_LATEX_RE.sub(r"\\\\", text)
+    control-character escape. Detection of GROUP-TAKING commands (the
+    \\frac{, \\binom{, \\boxed{ shape) is fully generic/syntax-based with
+    no command-name enumeration, so an unrecognized or brand-new command
+    is handled exactly like a well-known one; a small, explicitly
+    non-exhaustive set of common BRACE-LESS operators (\\tan, \\to,
+    \\theta, ...) is also recognized, since that narrower ambiguity
+    (a genuine "\\n" escape vs. "\\nabla") has no syntax-only answer --
+    see _COLLIDING_LATEX_RE's comment for why. Every backslash the model
+    emits in this context is intended literally, so doubling only these
+    ones (already-valid JSON escapes like a genuine \\n line break are
+    left untouched) never changes meaning."""
+    text = _COLLIDING_LATEX_RE.sub(r"\\\\", text)
     return _INVALID_ESCAPE_RE.sub(r"\\\\", text)
 
 
@@ -422,23 +460,30 @@ def _brace_balance_within(s: str, start: int) -> int:
     return depth
 
 
-# \frac, \sqrt, \sum, \int with a dangling/unbalanced {...} group -- e.g.
-# "\frac{a}{b" (missing final close) or "\sqrt{x" (missing close entirely).
-# Rather than guess at content, this only appends the minimum number of
-# closing braces needed to balance THAT command's group, exactly mirroring
-# the truncation-repair philosophy used for the outer JSON structure.
-_LATEX_GROUP_COMMAND_RE = re.compile(
-    r"\\\\?(frac|sqrt|sum|int|prod|lim|text|mathrm|mathbf|overline|underline|vec|hat|bar)\b")
+# A LaTeX command token: one or two leading backslashes (a doubled
+# backslash is valid JSON-escaped-backslash-then-command, seen after
+# earlier repair stages) followed by one or more letters -- \frac, \sqrt,
+# \binom, \boxed, \substack, \overrightarrow, \underset, or any other
+# current or future command. GENERIC / SYNTAX-BASED ON PURPOSE: this is
+# not a whitelist of named commands (the previous implementation's
+# `(frac|sqrt|sum|int|...)` enumeration is gone) -- ANY backslash-word
+# token is treated as a group-taking command, so an unrecognized or
+# brand-new command is balanced exactly like a well-known one. A command
+# that happens to take no {...} group at all (\pi, \times, \alpha, ...) is
+# harmless here too: the walk below only fires when a `{` immediately
+# follows, so a bare command with no group is just passed through as-is.
+_LATEX_GROUP_COMMAND_RE = re.compile(r"\\\\?[A-Za-z]+")
 
 
 def repair_malformed_latex_groups(text: str) -> str:
-    """Best-effort balancing of {...} groups that belong to a handful of
-    named LaTeX commands (\\frac, \\sqrt, \\text, \\left/\\right's
-    implicit grouping, \\sum, \\int, ...) when OCR/VLM output truncated or
-    dropped a closing brace mid-command. Only ever ADDS closing braces
-    immediately after the offending command's content — never removes or
-    rewrites characters — so it can't silently change any value that was
-    already well-formed."""
+    """Best-effort balancing of {...} groups belonging to ANY LaTeX
+    command (\\frac, \\sqrt, \\text, \\binom, \\boxed, \\substack,
+    \\overrightarrow, \\underset, or any other/future command -- matched
+    generically by syntax, not by a fixed command-name list) when
+    OCR/VLM output truncated or dropped a closing brace mid-command.
+    Only ever ADDS closing braces immediately after the offending
+    command's content — never removes or rewrites characters — so it
+    can't silently change any value that was already well-formed."""
     out = []
     i = 0
     n = len(text)
@@ -531,11 +576,12 @@ def repair_ocr_escape_noise(text: str) -> str:
     a recognized LaTeX command name (over-escaping from a previous lossy
     round-trip)."""
     # Collapse 3+ backslashes down to exactly 2 (i.e. one escaped
-    # backslash) before a known LaTeX command name -- over-escaping
-    # artifact from repeated cleanup passes upstream.
-    def _collapse(m: "re.Match") -> str:
-        return "\\\\" + m.group(1)
-    text = re.sub(r"\\{3,}(" + "|".join(KNOWN_LATEX_COMMANDS) + r")\b", _collapse, text)
+    # backslash) immediately before ANY LaTeX command word -- over-
+    # escaping artifact from repeated cleanup passes upstream. Detected
+    # generically by syntax (a run of 3+ backslashes directly followed by
+    # letters), not by a fixed command-name list, so an unrecognized or
+    # future command is collapsed exactly like a well-known one.
+    text = re.sub(r"\\{3,}(?=[A-Za-z])", r"\\\\", text)
     # A backslash immediately followed by whitespace or end-of-string is
     # never a valid LaTeX command nor a valid JSON escape -- almost always
     # OCR noise. Safe to escape (not delete) so we never lose a character
@@ -636,6 +682,22 @@ def repair_and_parse(raw: str, max_comma_repairs: int = 6) -> RepairResult:
         if collision_fixed != text:
             stages.append("repair_colliding_latex_escapes")
             text = collision_fixed
+
+    # Also applied unconditionally, before the first parse attempt: a
+    # truncated/unbalanced LaTeX {...} group (e.g. "\binom{n}{k" missing
+    # its final close) is syntactically ordinary JSON-string content --
+    # json.loads has no notion of LaTeX brace semantics, so it can
+    # "succeed" on text like this on the very first try, silently leaving
+    # the group unbalanced in the parsed value. Waiting for a parse
+    # failure (as every other repair below does) would therefore never
+    # even attempt this fix in exactly the cases it matters most. Safe to
+    # run unconditionally because it only ever APPENDS closing braces --
+    # it never removes or rewrites a character, so it cannot turn
+    # already-correct content into something different.
+    group_fixed = repair_malformed_latex_groups(text)
+    if group_fixed != text:
+        stages.append("repair_malformed_latex_groups")
+        text = group_fixed
 
     ok, parsed = _try_parse(text)
     if ok:

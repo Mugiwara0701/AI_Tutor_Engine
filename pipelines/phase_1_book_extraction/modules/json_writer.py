@@ -74,6 +74,17 @@ def set_storage(storage: OneDriveStorage) -> None:
     _storage_singleton = storage
 
 
+def get_storage() -> OneDriveStorage:
+    """Public accessor for this module's own storage singleton -- lets
+    another package (e.g. artifact_manager/, Phase F2) reuse the exact
+    same already-authenticated OneDriveStorage instance book_orchestrator.
+    run()'s startup gate handed to set_storage() above, instead of
+    constructing (and re-authenticating) a second client. Thin wrapper
+    around _get_storage(); exists purely so callers outside this module
+    have a non-underscore-prefixed name to import."""
+    return _get_storage()
+
+
 def book_output_dir(klass: str, subject: str, book_slug: str, output_root: Optional[str] = None) -> str:
     """Returns the OneDrive-relative .../json_out/ path for this book (e.g.
     "AI_TUTOR/CBSE/Class_12/Chemistry/Solutions/json_out"), creating the

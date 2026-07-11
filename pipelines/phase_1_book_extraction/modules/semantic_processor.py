@@ -32,7 +32,7 @@ import fitz  # PyMuPDF
 from PIL import Image
 
 from config import MAX_SEMANTIC_DESCRIPTION_WORDS
-from modules.pdf_parser import TopicRecord
+from modules.pdf_parser import TopicRecord, clean_extracted_text
 from modules.layout_detector import VisualRegion
 from modules import language_detector
 from prompt_manager import PromptManager, TaskContext
@@ -158,17 +158,47 @@ def _unwrap(parsed: Dict[str, Any]) -> Dict[str, Any]:
     per-field confidence, so an average is the closest faithful
     reconstruction of that same signal without inventing a new prompt
     convention outside prompt_manager's frozen per-field-triple design.
+
+    NORMALIZATION PARITY FIX: every string value returned here also now
+    passes through pdf_parser.clean_extracted_text() (NFC normalization +
+    invisible-character strip) -- the same treatment every other
+    extracted text field in the pipeline already receives. Before this
+    fix, VLM-generated text (topic semantic_summary/visual_summary,
+    figure/table/equation semantic descriptions, and -- most
+    consequentially -- recovered chapter_title/heading_title from the
+    script-mismatch recovery tasks) was assigned straight through with no
+    normalization at all, while text pulled directly from the PDF's own
+    layer always was. slugify()/make_id() happen to normalize their own
+    copy internally, so folder names and identities were never at risk --
+    but the raw display value written into the final JSON's chapter_title
+    /title/semantic_* fields could end up in a different Unicode form
+    than everything else. This is the single choke point every
+    process_*() function's result already flows through, so fixing it
+    here closes the gap for all of them at once rather than patching each
+    call site individually. Never OCR cleanup (this is model-generated
+    text, not OCR output) -- NFC normalization only, exactly like
+    clean_extracted_text's existing contract: never transliterates, never
+    romanizes, never touches a visible character of any script.
     """
     flat: Dict[str, Any] = {}
     confidences: List[float] = []
+
+    def _normalize(v):
+        if isinstance(v, str):
+            return clean_extracted_text(v)
+        if isinstance(v, list):
+            return [_normalize(item) for item in v]
+        if isinstance(v, dict):
+            return {k: _normalize(sub_v) for k, sub_v in v.items()}
+        return v
 
     def _unwrap_value(v):
         if isinstance(v, dict) and "value" in v and "confidence" in v:
             c = v.get("confidence")
             if isinstance(c, (int, float)):
                 confidences.append(float(c))
-            return v.get("value")
-        return v
+            return _normalize(v.get("value"))
+        return _normalize(v)
 
     for key, value in (parsed or {}).items():
         if isinstance(value, list):

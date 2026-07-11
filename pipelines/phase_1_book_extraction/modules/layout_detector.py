@@ -30,6 +30,8 @@ from typing import List, Dict, Any, Tuple, Optional
 
 import fitz  # PyMuPDF
 
+from modules.pdf_parser import clean_extracted_text
+
 CAPTION_RE = re.compile(r"^\s*(fig(?:ure)?\.?|table|chart|graph|map|box)\s*[\d.]*\s*[:.\-]?\s*(.*)$", re.I)
 TABLE_TYPE_HINT_RE = re.compile(r"\btable\b", re.I)
 EQUATION_HINT_RE = re.compile(r"[=∑∫√±≤≥≠∆π×÷]|\b[A-Za-z]\s*=\s*[A-Za-z0-9]")
@@ -64,8 +66,21 @@ def _lines_text_from_dict(text_dict: Dict[str, Any]) -> List[Tuple[float, str]]:
     """Derived once per page from an already-computed page.get_text("dict")
     result; shared by every detector that needs (y-position, line-text)
     pairs for caption lookup, instead of each detector re-deriving it from
-    a freshly re-parsed page."""
-    return [(l["bbox"][1], "".join(s["text"] for s in l["spans"]))
+    a freshly re-parsed page.
+
+    Normalization parity fix: this joins the exact same kind of raw
+    span text pdf_parser.extract_lines() does (page.get_text("dict") ->
+    "".join(span texts)), but is a second, independent extraction pass
+    that used to skip pdf_parser's clean_extracted_text() step entirely --
+    so a figure/table caption pulled from here could carry an
+    un-normalized Unicode form (or a stray invisible character) that the
+    same text would NOT have if it had instead been picked up as a
+    regular body line. Applying the identical NFC-normalization/
+    invisible-char-strip here (never OCR cleanup -- this is born-digital
+    text, same as pdf_parser's own lines) keeps every born-digital text
+    field in the pipeline on the same normalization footing regardless of
+    which detector happened to read it."""
+    return [(l["bbox"][1], clean_extracted_text("".join(s["text"] for s in l["spans"])))
             for b in text_dict["blocks"] for l in b.get("lines", [])]
 
 
@@ -121,7 +136,7 @@ def _equations_on_page(text_dict: Dict[str, Any], pno: int) -> List[VisualRegion
     regions: List[VisualRegion] = []
     for b in text_dict["blocks"]:
         for l in b.get("lines", []):
-            text = "".join(s["text"] for s in l["spans"]).strip()
+            text = clean_extracted_text("".join(s["text"] for s in l["spans"]).strip())
             if not text:
                 continue
             if EQUATION_HINT_RE.search(text) and len(text) < 200:

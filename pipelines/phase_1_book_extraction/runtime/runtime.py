@@ -77,6 +77,7 @@ manages one build at a time.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from config import DEFAULT_PAGE_BATCH_SIZE
@@ -128,7 +129,26 @@ class CompilerRuntime:
         one and only orchestration call site -- see module docstring),
         and translate the outcome into runtime/state.py + this
         instance's own bookkeeping. Both run() and resume() differ only
-        in what ExecutionContext they build before calling this."""
+        in what ExecutionContext they build before calling this.
+
+        Phase F2 (artifact_manager/) integration: immediately after
+        book_orchestrator.run() returns (success, cancellation, OR
+        failure -- a FAILED run still gets a Build so build history/
+        discovery can show it failed), this builds a Build object, that
+        Build's own Build Manifest, persists both via the exact same
+        already-authenticated storage instance book_orchestrator.run()'s
+        own startup gate constructed (reused through modules.json_writer.
+        get_storage(), never a second OneDriveStorage()), and records it
+        via artifact_manager.state.set_current_build(). This does NOT
+        change what run()/resume() themselves return -- they still
+        return `all_stats` unchanged (F0 §13's "preserve public APIs" /
+        this task's own backward-compatibility requirement) -- the Build
+        is reached via artifact_manager.state.get_current_build()
+        instead. A failure inside Phase F2's own bookkeeping (a
+        persistence error, say) is logged and swallowed, never allowed to
+        mask the run's own real outcome -- same "a broken observer must
+        never abort the run" principle _on_book_progress() already
+        applies to progress_callback."""
         import book_orchestrator  # local import: same reason pipeline.py/
         # book_orchestrator.py already use local imports for each other --
         # avoids a circular import at module load time (book_orchestrator
@@ -139,6 +159,17 @@ class CompilerRuntime:
         runtime_state.set_current_context(context)
         runtime_state.set_current_status(RuntimeStatus.RUNNING)
         self._cancel_requested = False
+        started_at = datetime.now(timezone.utc)
+
+        try:
+            from artifact_manager import state as build_state
+            build_state.reset_current_build()
+        except Exception:
+            logger.exception(
+                "artifact_manager: failed to reset current-build state at "
+                "the start of this run; continuing (this run's own Build "
+                "will still overwrite it once recorded)."
+            )
 
         try:
             all_stats = book_orchestrator.run(
@@ -152,6 +183,7 @@ class CompilerRuntime:
         except Exception as exc:
             runtime_state.set_current_error(str(exc))
             runtime_state.set_current_status(RuntimeStatus.FAILED)
+            self._record_build(context, RuntimeStatus.FAILED, [], str(exc), started_at)
             raise
 
         books_completed = len(all_stats)
@@ -167,7 +199,64 @@ class CompilerRuntime:
             runtime_state.set_current_status(RuntimeStatus.CANCELLED)
         else:
             runtime_state.set_current_status(RuntimeStatus.COMPLETED)
+        self._record_build(context, runtime_state.get_current_status(), all_stats, None, started_at)
         return all_stats
+
+    def _record_build(
+        self,
+        context: ExecutionContext,
+        status: str,
+        all_stats: List[Dict[str, Any]],
+        error: Optional[str],
+        started_at: datetime,
+    ) -> None:
+        """Phase F2 integration point: builds, manifests, and persists
+        this run's Build -- see _execute()'s own docstring above for the
+        full contract. Never raises: any failure here is logged and
+        swallowed so Phase F2's own bookkeeping can never turn a
+        successful (or already-failed, already-recorded) run into a
+        second, different failure for run()'s caller."""
+        try:
+            from artifact_manager import state as build_state
+            from artifact_manager.build import create_build
+            from artifact_manager.manifest import generate_build_manifest, attach_artifact_locations
+            from artifact_manager.persistence import persist_build
+            from modules import json_writer
+
+            build = create_build(
+                context=context, status=status, all_stats=all_stats,
+                error=error, started_at=started_at,
+            )
+            manifest = generate_build_manifest(build)
+
+            chapter_json_paths: List[str] = []
+            book_manifest_paths: List[str] = []
+            for book_stats in all_stats:
+                chapter_json_paths.extend(book_stats.get("written_paths") or [])
+                if book_stats.get("book_manifest_path"):
+                    book_manifest_paths.append(book_stats["book_manifest_path"])
+            manifest = attach_artifact_locations(
+                manifest, chapter_json_paths=chapter_json_paths,
+                book_manifest_paths=book_manifest_paths,
+            )
+            build = build.with_manifest(manifest)
+
+            storage = json_writer.get_storage()
+            paths = persist_build(storage, build.to_dict(), manifest)
+            manifest = attach_artifact_locations(
+                manifest, chapter_json_paths=chapter_json_paths,
+                book_manifest_paths=book_manifest_paths,
+                build_record_path=paths["build_record_path"],
+                manifest_record_path=paths["manifest_record_path"],
+            )
+            build = build.with_manifest(manifest)
+
+            build_state.set_current_build(build)
+        except Exception:
+            logger.exception(
+                "artifact_manager: failed to build/manifest/persist this "
+                "run's Build; run()'s own result/status is unaffected."
+            )
 
     def _on_book_progress(self, book_stats: dict) -> None:
         """Forwarded as book_orchestrator.run()'s own progress_callback:
