@@ -52,7 +52,7 @@ import os
 import logging
 from dataclasses import dataclass
 from glob import glob
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 from config import PDF_INPUT_FOLDER, JSON_OUTPUT_FOLDER, STORAGE_BOARD
 from modules import json_writer
@@ -135,22 +135,33 @@ def discover_books(pdf_input_folder: Optional[str] = None) -> List[Book]:
     return books
 
 
-def process_book(book: Book, use_vlm: bool, page_batch_size: int, force: bool) -> dict:
+def process_book(book: Book, use_vlm: bool, page_batch_size: int, force: bool,
+                  cancel_check: Optional[Callable[[], bool]] = None) -> dict:
     """Runs the existing single-book pipeline over one discovered book
     folder. Never raises — a failed book is logged and reported so the
     caller can move on to the next one; a single bad book must not stop
     the rest of the run, same principle as the existing per-chapter
     error handling inside pipeline.process_all_pdfs().
+
+    `cancel_check` (Phase F1, runtime/runtime.py): optional zero-arg
+    callable, forwarded to pipeline.process_all_pdfs()'s own cancel_check
+    (see that function's docstring). Passed as a keyword ONLY when not
+    None, so callers/test doubles built against the pre-F1
+    process_all_pdfs() signature (which doesn't accept cancel_check at
+    all) keep working unchanged when this new parameter isn't used.
     """
     import pipeline  # local import: avoids a circular import at module load time
 
     print(f"\nBook:\n{book.display_name}\n")
     try:
-        stats = pipeline.process_all_pdfs(
+        call_kwargs = dict(
             use_vlm=use_vlm, page_batch_size=page_batch_size, force=force,
             pdf_folder=book.pdf_folder, output_root=book.output_root,
             book_title_override=book.name,
         )
+        if cancel_check is not None:
+            call_kwargs["cancel_check"] = cancel_check
+        stats = pipeline.process_all_pdfs(**call_kwargs)
         print(f"\n✓ Book Completed ({stats.get('written', 0)} written, "
               f"{stats.get('failed', 0)} failed, {stats.get('found', 0)} found)")
         return stats
@@ -161,11 +172,33 @@ def process_book(book: Book, use_vlm: bool, page_batch_size: int, force: bool) -
 
 
 def run(use_vlm: bool = True, page_batch_size: int = 6, force: bool = False,
-        pdf_input_folder: Optional[str] = None) -> List[dict]:
+        pdf_input_folder: Optional[str] = None,
+        cancel_check: Optional[Callable[[], bool]] = None,
+        progress_callback: Optional[Callable[[dict], None]] = None) -> List[dict]:
     """Top-level entry point: discover every book under pdf_in/, then
     process them one at a time, printing the console banners the task
     asked for. Returns the per-book stats dicts for anyone (tests, a
     caller script) that wants the numbers without scraping logs.
+
+    `cancel_check` (Phase F1, runtime/runtime.py): optional zero-arg
+    callable. Checked once before each book starts (stopping the
+    remaining books here) and forwarded to process_book()/
+    pipeline.process_all_pdfs() so it's also checked between chapters
+    within the book currently running. Defaults to None -- when unset,
+    this function's behavior is unchanged from before this parameter
+    existed.
+
+    `progress_callback` (Phase F1, runtime/runtime.py): optional
+    one-arg callable invoked with that book's stats dict (the same dict
+    appended to `all_stats`) immediately after each book finishes --
+    book granularity, since that's the finest grain pipeline.py's
+    existing return values expose without duplicating its internal
+    per-chapter loop here. A callback that raises is logged and
+    swallowed, never allowed to abort the run -- same "one failure
+    must never stop the rest of the run" principle already applied to
+    per-book/per-chapter errors elsewhere in this module. Defaults to
+    None, in which case behavior is unchanged from before this
+    parameter existed.
     """
     # Startup gate: storage init -> auth -> first-run migration must all
     # succeed BEFORE any PDF is discovered or extraction begins (see
@@ -189,10 +222,22 @@ def run(use_vlm: bool = True, page_batch_size: int = 6, force: bool = False,
     all_stats = []
     n = len(books)
     for i, book in enumerate(books, start=1):
+        if cancel_check is not None and cancel_check():
+            logger.info("Cancellation requested; stopping before book %d/%d ('%s').",
+                        i, n, book.display_name)
+            break
         print(f"\nProcessing Book {i}/{n}")
-        stats = process_book(book, use_vlm=use_vlm, page_batch_size=page_batch_size, force=force)
+        stats = process_book(book, use_vlm=use_vlm, page_batch_size=page_batch_size, force=force,
+                              cancel_check=cancel_check)
         stats["book_name"] = book.display_name
         all_stats.append(stats)
+        if progress_callback is not None:
+            try:
+                progress_callback(stats)
+            except Exception:
+                logger.exception("progress_callback raised for book '%s'; ignoring "
+                                  "(a broken progress observer must never abort the run).",
+                                  book.display_name)
         print("=" * 50)
 
     total_written = sum(s.get("written", 0) for s in all_stats)

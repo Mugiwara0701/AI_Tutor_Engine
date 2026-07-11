@@ -23,6 +23,7 @@ import glob
 import hashlib
 import difflib
 import logging
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
@@ -111,6 +112,70 @@ def is_bold(font_name: str) -> bool:
     return bool(re.search(r"demi|bold|black|heavy", font_name, re.I))
 
 
+# --------------------------------------------------------------------------
+# Unicode Normalization Layer (Stabilization Sprint)
+# --------------------------------------------------------------------------
+# Deliberately a SEPARATE, minimal constant from compiler/normalization.py's
+# own _INVISIBLE_CHARS_TABLE rather than an import from it: compiler/ is a
+# later phase built ON TOP OF this module's output (extraction is the
+# earlier/lower layer), so this module must never depend upward on
+# compiler/. compiler/normalization.py's own layer additionally does
+# NFKC + casefold + smart-quote/dash-to-ASCII translation to build an
+# internal, non-display *lookup key* -- explicitly NOT what belongs at
+# raw-extraction time, where the goal is the opposite: preserve the
+# printed text exactly (script, punctuation, and all) while only removing
+# characters that carry no visible/semantic content of their own and
+# canonicalizing equivalent Unicode representations of the SAME text.
+#
+# NFC (not NFKC): NFC only canonically composes/decomposes to one
+# consistent representation of the *same* character (e.g. a precomposed
+# vs. combining-mark-decomposed form of the same accented letter always
+# normalize to the same codepoints) -- it never maps a "compatibility"
+# variant onto a different, cosimplified base character the way NFKC can
+# (e.g. NFKC would fold certain ligatures/fullwidth forms in ways that
+# alter a script's own presentation; NFC does not). This is the safe
+# choice for raw, language-preserving extracted text.
+_INVISIBLE_TEXT_CHARS = (
+    "\u00ad"   # SOFT HYPHEN
+    "\u200b"   # ZERO WIDTH SPACE
+    "\u200e"   # LEFT-TO-RIGHT MARK
+    "\u200f"   # RIGHT-TO-LEFT MARK
+    "\u2060"   # WORD JOINER
+    "\ufeff"   # ZERO WIDTH NO-BREAK SPACE / BOM
+)
+_INVISIBLE_TEXT_TABLE = {ord(c): None for c in _INVISIBLE_TEXT_CHARS}
+# NOTE: zero-width joiner/non-joiner (U+200C/U+200D) are deliberately NOT
+# in this table (unlike compiler/normalization.py's lookup-key layer,
+# which strips them for matching purposes) -- in several Indic scripts
+# (e.g. Bengali, Devanagari conjunct control) they are meaningful,
+# rendering-affecting characters, not incidental artifacts, at the raw
+# display-text layer. Removing them here would be exactly the kind of
+# language-altering change this sprint prohibits.
+
+
+def clean_extracted_text(text: str) -> str:
+    """Deterministic, language-preserving Unicode cleanup applied to every
+    line of raw extracted text (see extract_lines() below), independent
+    of script/language: NFC normalization (canonicalizes equivalent
+    Unicode representations of the SAME text -- never alters which
+    characters/language are present) + stripping a small set of
+    genuinely invisible/zero-content characters an OCR pass or a PDF's
+    text layer can leave behind (BOM, soft hyphen, zero-width space,
+    directional marks, word joiner). Never transliterates, never
+    romanizes, never touches a single visible character of any script.
+    Safe on already-clean text (idempotent) and never raises -- degrades
+    to the original string on any unexpected input.
+    """
+    if not text:
+        return text
+    try:
+        cleaned = unicodedata.normalize("NFC", text)
+        cleaned = cleaned.translate(_INVISIBLE_TEXT_TABLE)
+        return cleaned
+    except Exception:
+        return text
+
+
 def extract_lines(pdf_path: str) -> List[Line]:
     doc = fitz.open(pdf_path)
     lines: List[Line] = []
@@ -121,6 +186,7 @@ def extract_lines(pdf_path: str) -> List[Line]:
             for line in block.get("lines", []):
                 spans = line.get("spans", [])
                 text = "".join(s["text"] for s in spans).strip()
+                text = clean_extracted_text(text)
                 if not text:
                     continue
                 sizes = Counter()
@@ -329,9 +395,51 @@ def build_body_map(lines: List[Line], headings: List[Heading], repeated: set) ->
 
 
 def slugify(*parts: str) -> str:
-    raw = "_".join(p.lower().strip() for p in parts if p)
-    raw = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
-    return raw or "untitled"
+    """Deterministic, script-preserving slug.
+
+    Stabilization Sprint fix: the previous implementation
+    (`re.sub(r"[^a-z0-9]+", "-", raw)`) kept ONLY ASCII a-z/0-9 -- any
+    part written in a non-Latin script (Devanagari, Tamil, ...) had every
+    character stripped, collapsing to "" and falling back to the literal
+    string "untitled" for every such title. Since make_id()/make_urn()
+    and every book/chapter folder-name call site are layered on this
+    function, that silently produced (a) folder/file names that lost the
+    book's actual language entirely, and (b) hash collisions: two
+    DIFFERENT non-Latin titles both slugified to the same leftover ASCII
+    fragments (or nothing at all) and therefore hashed to the same id.
+
+    Fix: normalize to NFC (canonical composition -- keeps a script's
+    precomposed forms stable without altering the language), then keep
+    every Unicode LETTER, MARK, and NUMBER character (categories L*, M*,
+    N*) -- letters covers any script, MARKS is essential for Indic
+    scripts, where a combining vowel sign / virama (category Mn/Mc, e.g.
+    the sign making "कि" out of "क" + "ि", or the virama forming a
+    conjunct like "ज्ञ") is not itself alphanumeric but must never be
+    treated as a separator, or the word visually fragments into
+    disconnected consonants. Every other character (whitespace,
+    punctuation, OS-reserved path characters / \\ : * ? " < > |, ...) is
+    collapsed to a single '-'. Never romanizes, transliterates, or drops
+    a script's own characters. Falls back to "untitled" only when a part
+    is genuinely empty after normalization -- the same "no content at
+    all" case the old code handled.
+    """
+    raw = "_".join(str(p).strip() for p in parts if p and str(p).strip())
+    if not raw:
+        return "untitled"
+    raw = unicodedata.normalize("NFC", raw).lower()
+
+    out: List[str] = []
+    prev_was_sep = True  # avoid a leading '-'
+    for ch in raw:
+        if unicodedata.category(ch)[0] in ("L", "M", "N"):
+            out.append(ch)
+            prev_was_sep = False
+        elif not prev_was_sep:
+            out.append("-")
+            prev_was_sep = True
+
+    slug = "".join(out).rstrip("-")
+    return slug or "untitled"
 
 
 def make_id(*parts: str) -> str:

@@ -64,7 +64,7 @@ import glob
 import logging
 from datetime import datetime, timezone
 import argparse
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Callable
 
 import fitz  # PyMuPDF
 
@@ -1752,7 +1752,8 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
 
 def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_BATCH_SIZE, force: bool = False,
                       pdf_folder: Optional[str] = None, output_root: Optional[str] = None,
-                      book_title_override: Optional[str] = None) -> Dict[str, Any]:
+                      book_title_override: Optional[str] = None,
+                      cancel_check: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
     """Processes every chapter PDF in a single folder (one book's worth of PDFs).
 
     `pdf_folder` defaults to the top-level PDF_INPUT_FOLDER, and `output_root`
@@ -1767,6 +1768,17 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
     chapter JSONs under). Returns a small stats dict so a caller (e.g. the
     orchestrator) can report per-book results without re-deriving them from
     logs.
+
+    `cancel_check` (Phase F1, runtime/runtime.py): an optional, zero-arg
+    callable checked once before each chapter in the loop below; when it
+    returns True, the remaining chapters in *this* folder are skipped and
+    the returned stats dict carries `"cancelled": True`. Purely additive --
+    defaults to None, in which case behavior is byte-for-byte identical to
+    before this parameter existed (no check is ever performed). This is the
+    only cooperative-cancellation checkpoint Phase F1's CompilerRuntime has
+    available; it does not interrupt a chapter already in progress inside
+    process_chapter(), only the gap between one chapter finishing and the
+    next one starting.
     """
     pdf_folder = pdf_folder or PDF_INPUT_FOLDER
     os.makedirs(pdf_folder, exist_ok=True)
@@ -1861,7 +1873,13 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
 
     written = []
     failed = 0
+    cancelled = False
     for i, pdf_path in enumerate(chapter_paths, start=1):
+        if cancel_check is not None and cancel_check():
+            logger.info("Cancellation requested; stopping before chapter %d/%d in '%s'.",
+                        i, total, os.path.basename(pdf_folder))
+            cancelled = True
+            break
         print(f"\nProcessing Chapter {i}/{total}")
         print(os.path.basename(pdf_path))
         try:
@@ -1900,7 +1918,14 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
                                          book_ctx.book_title, book_ctx.toc, output_root=output_root)
 
     logger.info("Done. %d chapter JSON file(s) written, %d failed.", len(written), failed)
-    return {"found": total, "written": len(written), "failed": failed, "book_title": book_ctx.book_title}
+    stats = {"found": total, "written": len(written), "failed": failed, "book_title": book_ctx.book_title}
+    if cancelled:
+        # Additive key, only ever present when cancel_check actually fired --
+        # existing callers that never pass cancel_check (the fixed default of
+        # None) never see this key, so the returned dict shape they rely on
+        # is unchanged.
+        stats["cancelled"] = True
+    return stats
 
 
 def main():
