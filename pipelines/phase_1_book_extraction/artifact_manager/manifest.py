@@ -34,6 +34,18 @@ compiler/knowledge-graph content, which Phase B/C already fingerprinted
 via compiler.fingerprints/knowledge_graph.fingerprints (those existing
 fingerprints, where a Build carries them, are surfaced verbatim under
 `fingerprints` below, never recomputed).
+
+ARTIFACT_LOCATIONS, INCLUDING THIS BUILD'S OWN RECORD PATHS, ARE ATTACHED
+IN ONE PASS: `attach_artifact_locations()` below fills in
+`build_record_path`/`manifest_record_path` alongside `chapter_json_paths`/
+`book_manifest_paths` in the SAME call, before `persistence.persist_build()`
+ever runs -- `build_record_path()`/`manifest_record_path()` (persistence.py)
+are pure functions of `build.build_id`, so both are known up front and this
+never requires a second attach-then-persist-again pass. This is what
+guarantees the manifest object actually written to storage and the
+manifest attached to the in-memory `Build` are the same dict, byte for
+byte -- see runtime/runtime.py's `_record_build()` for the one call site
+that does this.
 """
 from __future__ import annotations
 

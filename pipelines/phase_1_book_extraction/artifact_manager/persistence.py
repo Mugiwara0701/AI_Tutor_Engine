@@ -42,6 +42,16 @@ logger = logging.getLogger("artifact_manager.persistence")
 _BUILDS_ROOT = "_runtime_builds"
 
 
+def builds_root() -> str:
+    """Public accessor for this module's build-history root path --
+    the one thing discovery.py (or any other future in-package/
+    cross-package caller) needs from here without reaching into the
+    private `_BUILDS_ROOT` constant directly. Storage layout/behavior
+    is unchanged: this returns the exact same value `_BUILDS_ROOT`
+    already held."""
+    return _BUILDS_ROOT
+
+
 def _build_dir(build_id: str) -> str:
     return f"{_BUILDS_ROOT}/{build_id}"
 

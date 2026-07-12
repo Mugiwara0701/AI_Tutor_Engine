@@ -5,9 +5,11 @@ history.
 Reuses `storage.list_directory()` -- the exact same listing surface
 already exposed by OneDriveStorage, no new discovery/indexing mechanism
 of its own. Build history is simply "what's under persistence.py's own
-_runtime_builds/ root", read on demand; nothing here is cached or
-indexed anywhere new (no build database, no local index file -- that
-would be a form of the "Cache" F0 explicitly reserves for Phase F4).
+builds root", read via persistence.builds_root() (a public accessor --
+this module never reaches into persistence.py's private _BUILDS_ROOT
+constant directly) on demand; nothing here is cached or indexed
+anywhere new (no build database, no local index file -- that would be
+a form of the "Cache" F0 explicitly reserves for Phase F4).
 """
 from __future__ import annotations
 
@@ -17,7 +19,7 @@ from typing import Any, Dict, List
 from storage.exceptions import NotFoundError, StorageError
 
 from .exceptions import PersistenceError
-from .persistence import _BUILDS_ROOT, load_manifest
+from .persistence import builds_root, load_manifest
 
 logger = logging.getLogger("artifact_manager.discovery")
 
@@ -34,12 +36,12 @@ def list_builds(storage: Any) -> List[str]:
     Raises PersistenceError if the listing call fails for any other
     reason."""
     try:
-        entries = storage.list_directory(path=_BUILDS_ROOT)
+        entries = storage.list_directory(path=builds_root())
     except NotFoundError:
         return []
     except StorageError as exc:
         raise PersistenceError(
-            f"list_builds(): failed to list {_BUILDS_ROOT!r}: {exc}"
+            f"list_builds(): failed to list {builds_root()!r}: {exc}"
         ) from exc
 
     build_ids = sorted(

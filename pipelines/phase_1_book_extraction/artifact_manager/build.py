@@ -50,14 +50,30 @@ Each `*_reference` field on Build is therefore one of:
 This is a deliberate, narrower reading of "reference" than "one
 reference per chapter this run touched" would be -- an honest
 consequence of Phases A-E1's own chapter-scoped state design, not a
-gap Phase F2 papers over. The Build Manifest's own `artifact_locations`
-(see manifest.py) is what carries the comprehensive, per-chapter record
-of this run's real, durable output (every chapter JSON path and book
-manifest path book_orchestrator/pipeline.py actually wrote), since that
-IS available for every chapter, not just the last one.
+gap Phase F2 papers over.
+
+AUTHORITY MODEL (revisited after initial review): the eight
+`*_reference` fields below remain on Build, unchanged in name, shape,
+and meaning, for backward compatibility with any code already reading
+`build.compiler_ir_reference` etc. directly. But they are no longer
+where a NEW caller should go looking for "this build's artifact index"
+-- that role now belongs solely to the Build Manifest (see manifest.py):
+`build_manifest["chapter_state_references"]` carries these same eight
+values verbatim (both are populated from the one, single
+build_reference_snapshot() read below -- never two independent reads,
+never able to drift), sitting alongside `build_manifest[
+"artifact_locations"]`, the comprehensive, real, every-chapter-this-
+run-actually-wrote path index. Together those two manifest fields are
+the complete, versioned, fingerprinted, persisted, discoverable answer
+to "what did this build produce and where does it live" -- Build's own
+attributes are a plain, honest mirror of a subset of that, kept only so
+existing call sites keep working. `Build.artifact_index` (below) is the
+one accessor that always resolves to the manifest's copy once available,
+so new code never needs to choose between the two representations.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import uuid
@@ -75,24 +91,40 @@ BUILD_VERSION = "F2.1"
 
 def _to_plain(value: Any) -> Any:
     """Normalizes one phase's get_current_*() result into a plain,
-    JSON-safe dict: already-a-dict is returned as-is, a dataclass
+    JSON-safe dict: already-a-dict is shape-adapted as-is, a dataclass
     exposing to_dict() is converted via that method, None stays None.
     Never re-derives a field -- purely a shape adapter so Build stays
     trivially serializable via the exact same json.dumps() every other
-    artifact in this codebase already goes through."""
+    artifact in this codebase already goes through.
+
+    SNAPSHOT, NOT ALIAS: the value returned here is always this
+    function's own `copy.deepcopy()`, regardless of which branch below
+    produced it -- a phase's own get_current_*() dict (or its to_dict()
+    result) is otherwise the exact same live object that phase's state
+    module still considers its "current chapter" state; without this
+    deep copy, Build would hold a mutable alias into that state rather
+    than a true snapshot, and a later mutation of the returned dict
+    (however unlikely today) would silently corrupt the frozen phase's
+    own state. This is purely a copy boundary -- it changes nothing
+    about *what* Build stores, only that Build's copy can never be the
+    same object a live phase state slot still points to."""
     if value is None:
         return None
     if isinstance(value, dict):
-        return value
-    to_dict = getattr(value, "to_dict", None)
-    if callable(to_dict):
-        return to_dict()
-    # Last resort for a plain dataclass instance with no to_dict() of
-    # its own -- still no recomputation, just a shape adapter.
-    try:
-        return asdict(value)
-    except TypeError:
-        return value
+        plain = value
+    else:
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            plain = to_dict()
+        else:
+            # Last resort for a plain dataclass instance with no
+            # to_dict() of its own -- still no recomputation, just a
+            # shape adapter.
+            try:
+                plain = asdict(value)
+            except TypeError:
+                plain = value
+    return copy.deepcopy(plain)
 
 
 def _reference(artifact: Any) -> Optional[Dict[str, Any]]:
@@ -206,6 +238,15 @@ class Build:
     same "immutable record, replace don't mutate" contract this
     dataclass's own `frozen=True` already enforces at the language
     level.
+
+    DEPRECATED-BUT-KEPT (backward compatibility only): the eight
+    `*_reference` fields below are a read-only mirror of exactly
+    `build_manifest["chapter_state_references"]` once a manifest has
+    been attached (see module docstring's "AUTHORITY MODEL"). New code
+    should read `build.artifact_index` (below) or
+    `build.build_manifest` directly rather than these fields -- they
+    are retained, unchanged, purely so code written against the
+    original Build shape keeps working.
     """
 
     build_id: str
@@ -225,6 +266,43 @@ class Build:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
+    @property
+    def artifact_index(self) -> Dict[str, Any]:
+        """THE recommended read path for "this build's artifact index"
+        (see module docstring's "AUTHORITY MODEL"). Once a manifest is
+        attached (`with_manifest()` has run -- true for every Build
+        CompilerRuntime._record_build() hands to artifact_manager.state,
+        see runtime/runtime.py), returns exactly
+        `{"artifact_locations": build_manifest["artifact_locations"],
+        "chapter_state_references": build_manifest[
+        "chapter_state_references"]}` -- the manifest's own authoritative
+        copy, not a second computation. Before a manifest is attached
+        (e.g. inspecting a freshly create_build()-ed Build mid-
+        construction), falls back to assembling the same shape directly
+        from this Build's own eight fields, so the accessor never raises
+        and never returns a different shape -- only `artifact_locations`
+        is necessarily empty at that point (it isn't known until this
+        run's chapter/book paths are gathered, same as in manifest.py's
+        own generate_build_manifest())."""
+        if self.build_manifest is not None:
+            return {
+                "artifact_locations": self.build_manifest.get("artifact_locations"),
+                "chapter_state_references": self.build_manifest.get("chapter_state_references"),
+            }
+        return {
+            "artifact_locations": None,
+            "chapter_state_references": {
+                "compiler_ir_reference": self.compiler_ir_reference,
+                "knowledge_graph_reference": self.knowledge_graph_reference,
+                "dependency_graph_reference": self.dependency_graph_reference,
+                "build_metadata_reference": self.build_metadata_reference,
+                "change_detection_reference": self.change_detection_reference,
+                "incremental_plan_reference": self.incremental_plan_reference,
+                "incremental_validation_reference": self.incremental_validation_reference,
+                "incremental_finalization_reference": self.incremental_finalization_reference,
+            },
+        }
 
     def with_manifest(self, build_manifest: Dict[str, Any]) -> "Build":
         """Returns a new Build with `build_manifest` attached -- the

@@ -242,6 +242,57 @@ def test_attach_artifact_locations_updates_fingerprint_and_never_mutates_input()
     assert m2["manifest_fingerprint"] != m1["manifest_fingerprint"]
 
 
+def test_manifest_carries_chapter_state_references_matching_build_fields():
+    """The manifest's own chapter_state_references must always mirror
+    Build's eight *_reference fields verbatim -- single source read,
+    two representations, zero drift."""
+    import compiler.state as compiler_state
+    from compiler.registry_manager import RegistryManager
+
+    manager = RegistryManager()
+    manager.create("concepts")
+    compiler_state.set_current_registry_manager(manager)
+    try:
+        build = _make_build()
+    finally:
+        compiler_state.reset_registry_state()
+
+    manifest = generate_build_manifest(build)
+    refs = manifest["chapter_state_references"]
+    assert refs["compiler_ir_reference"] == build.compiler_ir_reference
+    assert refs["knowledge_graph_reference"] == build.knowledge_graph_reference
+    assert refs["dependency_graph_reference"] == build.dependency_graph_reference
+    assert refs["build_metadata_reference"] == build.build_metadata_reference
+    assert refs["change_detection_reference"] == build.change_detection_reference
+    assert refs["incremental_plan_reference"] == build.incremental_plan_reference
+    assert refs["incremental_validation_reference"] == build.incremental_validation_reference
+    assert refs["incremental_finalization_reference"] == build.incremental_finalization_reference
+    # And artifact_locations remains its own, separate, comprehensive index.
+    assert "artifact_locations" in manifest
+    assert manifest["artifact_locations"] != refs
+
+
+def test_artifact_index_before_manifest_attached_falls_back_to_build_fields():
+    build = _make_build()  # build_manifest is None at this point
+    index = build.artifact_index
+    assert index["artifact_locations"] is None
+    assert index["chapter_state_references"]["compiler_ir_reference"] == build.compiler_ir_reference
+
+
+def test_artifact_index_after_manifest_attached_resolves_to_manifest_copy():
+    build = _make_build()
+    manifest = generate_build_manifest(build)
+    manifest = attach_artifact_locations(
+        manifest, chapter_json_paths=["a.json"], book_manifest_paths=["_book_manifest.json"],
+    )
+    build = build.with_manifest(manifest)
+
+    index = build.artifact_index
+    assert index["artifact_locations"] == manifest["artifact_locations"]
+    assert index["chapter_state_references"] == manifest["chapter_state_references"]
+    assert index["artifact_locations"]["chapter_json_paths"] == ["a.json"]
+
+
 # ---------------------------------------------------------------------------
 # 3. Persistence / discovery
 # ---------------------------------------------------------------------------
@@ -385,3 +436,130 @@ def test_artifact_manager_failure_never_masks_a_successful_run(fake_book_orchest
     # Build/manifest were constructed but never persisted / never recorded,
     # since get_storage() itself raised inside _record_build()'s try/except.
     assert not build_state.has_current_build()
+
+
+# ---------------------------------------------------------------------------
+# 6. Regression: F2-H1 -- persisted manifest must carry its own location
+# ---------------------------------------------------------------------------
+#
+# Audit finding F2-H1: build_record_path()/manifest_record_path() used to
+# only be known from persist_build()'s own return value, which meant the
+# manifest actually written to storage was attached *before* those paths
+# were computed, and a second, corrected copy was attached afterwards but
+# never re-persisted. The fix computes both paths up front (they are pure
+# functions of build.build_id) and attaches them before the one and only
+# persist_build() call. These tests reload the manifest from storage --
+# not just the in-memory Build -- to prove the fix actually lands on disk.
+
+def test_persisted_manifest_records_its_own_build_and_manifest_paths(fake_storage):
+    build = _make_build()
+    manifest = generate_build_manifest(build)
+    manifest = attach_artifact_locations(
+        manifest, chapter_json_paths=["a.json"], book_manifest_paths=["_book_manifest.json"],
+        build_record_path=persistence.build_record_path(build.build_id),
+        manifest_record_path=persistence.manifest_record_path(build.build_id),
+    )
+    build = build.with_manifest(manifest)
+
+    persistence.persist_build(fake_storage, build.to_dict(), manifest)
+
+    reloaded_manifest = persistence.load_manifest(fake_storage, build.build_id)
+    assert reloaded_manifest["artifact_locations"]["build_record_path"] == \
+        persistence.build_record_path(build.build_id)
+    assert reloaded_manifest["artifact_locations"]["manifest_record_path"] == \
+        persistence.manifest_record_path(build.build_id)
+
+    # And the reloaded manifest is identical to the in-memory one that was
+    # attached to the Build -- persistence must not silently diverge from
+    # what CompilerRuntime._record_build() actually built.
+    assert reloaded_manifest == manifest
+    assert reloaded_manifest == build.build_manifest
+
+
+def test_run_persists_a_manifest_whose_own_paths_survive_reload(fake_book_orchestrator, fake_storage):
+    """End-to-end regression for F2-H1 through the real
+    CompilerRuntime._record_build() integration point, not just direct
+    artifact_manager calls."""
+    rt = CompilerRuntime(use_vlm=False, page_batch_size=6, force=False)
+    rt.run()
+
+    build = build_state.get_current_build()
+    in_memory_locations = build.build_manifest["artifact_locations"]
+    assert in_memory_locations["build_record_path"] is not None
+    assert in_memory_locations["manifest_record_path"] is not None
+
+    # The regression: reload the manifest from storage (exactly what
+    # discovery.build_history() does for every build) and confirm it is
+    # not just non-null but identical to the in-memory copy.
+    reloaded_manifest = persistence.load_manifest(fake_storage, build.build_id)
+    reloaded_locations = reloaded_manifest["artifact_locations"]
+    assert reloaded_locations["build_record_path"] == in_memory_locations["build_record_path"]
+    assert reloaded_locations["manifest_record_path"] == in_memory_locations["manifest_record_path"]
+    assert reloaded_manifest == build.build_manifest
+
+    # And the persisted Build record's own attached manifest agrees too.
+    reloaded_build = persistence.load_build(fake_storage, build.build_id)
+    assert reloaded_build["build_manifest"]["artifact_locations"] == in_memory_locations
+
+
+# ---------------------------------------------------------------------------
+# 7. Regression: F2-M1 -- Build snapshots must be isolated from later
+#    mutation of the phase-scoped state they were read from.
+# ---------------------------------------------------------------------------
+#
+# Audit finding F2-M1: _to_plain() (build.py) used to return an
+# already-a-dict artifact as-is, so Build.*_reference["artifact"] could be
+# the exact same live object a phase's own state.py module still
+# considered its "current chapter" state -- not a snapshot. The fix
+# deep-copies at that boundary. These tests mutate the live phase state
+# *after* create_build() and confirm the Build's own reference is
+# unaffected.
+
+def test_build_dependency_graph_reference_is_isolated_from_later_mutation():
+    import dependency_graph.state as dependency_graph_state
+
+    live_graph = {"nodes": ["concept-a"], "edges": []}
+    dependency_graph_state.set_current_dependency_graph(live_graph)
+    try:
+        build = _make_build()
+        assert build.dependency_graph_reference["artifact"]["nodes"] == ["concept-a"]
+
+        # Mutate the live phase state *after* the Build snapshot was taken --
+        # nested list mutation, not reassignment, so only a deep copy (not a
+        # shallow one) would actually catch this.
+        live_graph["nodes"].append("concept-b")
+        live_graph["edges"].append({"from": "concept-a", "to": "concept-b"})
+
+        assert build.dependency_graph_reference["artifact"]["nodes"] == ["concept-a"]
+        assert build.dependency_graph_reference["artifact"]["edges"] == []
+        # And the live state itself really did change, proving this isn't
+        # a false pass from the mutation being a no-op.
+        assert dependency_graph_state.get_current_dependency_graph()["nodes"] == \
+            ["concept-a", "concept-b"]
+    finally:
+        dependency_graph_state.reset_dependency_graph_state()
+
+
+def test_to_plain_deep_copies_dict_artifacts_at_the_snapshot_boundary():
+    """Direct, white-box regression for the actual fix: _to_plain()
+    (build.py) is the one function every *_reference field's value
+    passes through -- it must never return the same dict object it was
+    given, or a nested mutable value within it, so Build can never
+    alias a phase's own live "current chapter" state."""
+    from artifact_manager.build import _to_plain
+
+    original = {"nodes": ["a"], "nested": {"list": [1, 2, 3]}}
+    snapshot = _to_plain(original)
+
+    assert snapshot == original
+    assert snapshot is not original
+    assert snapshot["nested"] is not original["nested"]
+    assert snapshot["nested"]["list"] is not original["nested"]["list"]
+
+    # Mutating the original (as a live phase state slot could be, in
+    # place, by later code in the same process) must not be visible
+    # through the already-taken snapshot.
+    original["nodes"].append("b")
+    original["nested"]["list"].append(4)
+    assert snapshot["nodes"] == ["a"]
+    assert snapshot["nested"]["list"] == [1, 2, 3]

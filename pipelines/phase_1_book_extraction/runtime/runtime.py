@@ -220,7 +220,11 @@ class CompilerRuntime:
             from artifact_manager import state as build_state
             from artifact_manager.build import create_build
             from artifact_manager.manifest import generate_build_manifest, attach_artifact_locations
-            from artifact_manager.persistence import persist_build
+            from artifact_manager.persistence import (
+                build_record_path,
+                manifest_record_path,
+                persist_build,
+            )
             from modules import json_writer
 
             build = create_build(
@@ -235,21 +239,27 @@ class CompilerRuntime:
                 chapter_json_paths.extend(book_stats.get("written_paths") or [])
                 if book_stats.get("book_manifest_path"):
                     book_manifest_paths.append(book_stats["book_manifest_path"])
+
+            # build_record_path()/manifest_record_path() are pure
+            # functions of build.build_id (see persistence.py) -- they
+            # can be computed up front, before persistence itself runs,
+            # so the manifest attached to `build` and the manifest
+            # actually written to storage below are the exact same
+            # dict, byte for byte. (Previously these paths were only
+            # known from persist_build()'s own return value, which
+            # required attaching + persisting once, then attaching a
+            # *second*, never-persisted copy with the real paths --
+            # leaving the on-disk manifest permanently missing its own
+            # location. See F2 audit finding F2-H1.)
             manifest = attach_artifact_locations(
-                manifest, chapter_json_paths=chapter_json_paths,
-                book_manifest_paths=book_manifest_paths,
+                manifest, chapter_json_paths=chapter_json_paths, book_manifest_paths=book_manifest_paths,
+                build_record_path=build_record_path(build.build_id),
+                manifest_record_path=manifest_record_path(build.build_id),
             )
             build = build.with_manifest(manifest)
 
             storage = json_writer.get_storage()
-            paths = persist_build(storage, build.to_dict(), manifest)
-            manifest = attach_artifact_locations(
-                manifest, chapter_json_paths=chapter_json_paths,
-                book_manifest_paths=book_manifest_paths,
-                build_record_path=paths["build_record_path"],
-                manifest_record_path=paths["manifest_record_path"],
-            )
-            build = build.with_manifest(manifest)
+            persist_build(storage, build.to_dict(), manifest)
 
             build_state.set_current_build(build)
         except Exception:
