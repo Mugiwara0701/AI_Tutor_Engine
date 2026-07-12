@@ -104,14 +104,51 @@ class Book:
         return self.name if self.name else "(pdf_in root — legacy flat layout)"
 
 
+def _discover_books_under(dir_path: str, name_parts: List[str], books: List["Book"]) -> None:
+    """Recursively finds every folder that directly contains *.pdf files
+    and appends one Book per such folder, regardless of how many levels of
+    subfolders sit above it. Covers both layouts with the same logic:
+
+        pdf_in/Class_10_Science/*.pdf                  (1 level)
+        pdf_in/Accountancy/Part 1/*.pdf                (2 levels)
+        pdf_in/Accountancy/Part 2/*.pdf
+
+    A folder becomes a Book the moment it directly holds PDFs -- a
+    "Subject" folder that only has "Part N" children (no PDFs of its own)
+    is never itself turned into a Book, only its Part subfolders are, so a
+    two-level Subject/Part layout naturally produces one Book per Part
+    without a Subject-level book also getting created alongside them.
+    `name_parts` is the chain of folder names from the immediate child of
+    pdf_in/ down to `dir_path`, joined with " - " for the Book's
+    display/output name (e.g. "Accountancy - Part 1") so sibling Parts
+    under the same Subject don't collide in json_out/.
+    """
+    subdirs = sorted(
+        e for e in os.listdir(dir_path) if os.path.isdir(os.path.join(dir_path, e))
+    )
+    if glob(os.path.join(dir_path, "*.pdf")):
+        books.append(Book(name=" - ".join(name_parts), pdf_folder=dir_path, output_root=None))
+    elif not subdirs:
+        logger.warning("Skipping '%s' — no PDFs found in this subfolder (and no further "
+                        "subfolders to look in).", dir_path)
+
+    for sub in subdirs:
+        _discover_books_under(os.path.join(dir_path, sub), name_parts + [sub], books)
+
+
 def discover_books(pdf_input_folder: Optional[str] = None) -> List[Book]:
     """Scans pdf_in/ (or `pdf_input_folder`) and returns one Book per
-    immediate subfolder that contains at least one *.pdf, PLUS — for
-    backward compatibility — one extra legacy Book if *.pdf files are also
-    sitting directly inside pdf_in/ itself (the pre-multi-book behavior).
+    folder that directly contains at least one *.pdf, searched at any
+    depth under each top-level subfolder -- so both a flat
+    "pdf_in/Subject/*.pdf" layout and a nested "pdf_in/Subject/Part N/
+    *.pdf" layout (or deeper) are auto-detected the same way, with no
+    separate code path for either. PLUS — for backward compatibility —
+    one extra legacy Book if *.pdf files are also sitting directly inside
+    pdf_in/ itself (the pre-multi-book behavior).
 
-    Subfolders that are present but contain no PDFs are ignored (nothing to
-    process, no reason to fail the run over an empty/misplaced folder).
+    Folders (at any depth) that contain neither PDFs nor further
+    subfolders are ignored (nothing to process, no reason to fail the run
+    over an empty/misplaced folder).
     """
     root = pdf_input_folder if pdf_input_folder is not None else PDF_INPUT_FOLDER
     books: List[Book] = []
@@ -123,10 +160,7 @@ def discover_books(pdf_input_folder: Optional[str] = None) -> List[Book]:
         entry_path = os.path.join(root, entry)
         if not os.path.isdir(entry_path):
             continue
-        if not glob(os.path.join(entry_path, "*.pdf")):
-            logger.warning("Skipping '%s' — no PDFs found in this subfolder.", entry_path)
-            continue
-        books.append(Book(name=entry, pdf_folder=entry_path, output_root=None))
+        _discover_books_under(entry_path, [entry], books)
 
     # Backward compatibility: PDFs placed directly in pdf_in/ (old layout).
     if glob(os.path.join(root, "*.pdf")):
@@ -136,7 +170,8 @@ def discover_books(pdf_input_folder: Optional[str] = None) -> List[Book]:
 
 
 def process_book(book: Book, use_vlm: bool, page_batch_size: int, force: bool,
-                  cancel_check: Optional[Callable[[], bool]] = None) -> dict:
+                  cancel_check: Optional[Callable[[], bool]] = None,
+                  book_index: Optional[int] = None, total_books: Optional[int] = None) -> dict:
     """Runs the existing single-book pipeline over one discovered book
     folder. Never raises — a failed book is logged and reported so the
     caller can move on to the next one; a single bad book must not stop
@@ -149,6 +184,10 @@ def process_book(book: Book, use_vlm: bool, page_batch_size: int, force: bool,
     None, so callers/test doubles built against the pre-F1
     process_all_pdfs() signature (which doesn't accept cancel_check at
     all) keep working unchanged when this new parameter isn't used.
+    `book_index` / `total_books`: optional, purely for the enriched
+    per-chapter log block pipeline.process_chapter() prints (Book
+    Progress: Book x/Total Books). Passed as keywords ONLY when not
+    None, same test-double-safety convention as `cancel_check` above.
     """
     import pipeline  # local import: avoids a circular import at module load time
 
@@ -161,6 +200,10 @@ def process_book(book: Book, use_vlm: bool, page_batch_size: int, force: bool,
         )
         if cancel_check is not None:
             call_kwargs["cancel_check"] = cancel_check
+        if book_index is not None:
+            call_kwargs["book_index"] = book_index
+        if total_books is not None:
+            call_kwargs["total_books"] = total_books
         stats = pipeline.process_all_pdfs(**call_kwargs)
         print(f"\n✓ Book Completed ({stats.get('written', 0)} written, "
               f"{stats.get('failed', 0)} failed, {stats.get('found', 0)} found)")
@@ -228,7 +271,7 @@ def run(use_vlm: bool = True, page_batch_size: int = 6, force: bool = False,
             break
         print(f"\nProcessing Book {i}/{n}")
         stats = process_book(book, use_vlm=use_vlm, page_batch_size=page_batch_size, force=force,
-                              cancel_check=cancel_check)
+                              cancel_check=cancel_check, book_index=i, total_books=n)
         stats["book_name"] = book.display_name
         all_stats.append(stats)
         if progress_callback is not None:

@@ -57,6 +57,7 @@ Run:
 The model (Qwen2.5-VL-3B-Instruct) is loaded once via vlm_inference.get_model()
 on the first call that needs it and reused for the rest of the run.
 """
+import functools
 import os
 import sys
 import time
@@ -210,14 +211,17 @@ def _recover_script_mismatched_text(doc: fitz.Document, structure: pdf_parser.Ch
 
 def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_order_fallback: int,
                      use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_BATCH_SIZE,
-                     force: bool = False, output_root: Optional[str] = None) -> Optional[str]:
+                     force: bool = False, output_root: Optional[str] = None,
+                     book_index: Optional[int] = None, total_books: Optional[int] = None,
+                     processing_position: Optional[int] = None,
+                     total_chapters_in_book: Optional[int] = None) -> Optional[str]:
     t0 = time.time()
     extraction_logs: Dict[str, Any] = {"warnings": [], "errors": [], "missing_figures": [],
                                         "ocr_failures": [], "parser_messages": []}
 
     structure = pdf_parser.parse_chapter_pdf(pdf_path, book_ctx, chapter_order_fallback)
-    structure.book_title = book_ctx.book_title  # attached for json_writer
-    book_slug = slugify(book_ctx.book_title)
+    structure.book_title = book_ctx.book_title  # official title, attached for json_writer
+    book_slug = slugify(pdf_parser.book_slug_source(book_ctx))  # folder-name identity, NOT the official title
     # A3 FIX (identity consistency): canonical_namespace / chapter_reference
     # are deliberately NOT computed here anymore. They must be derived from
     # the FINAL chapter title -- i.e. only after script-mismatch recovery
@@ -255,8 +259,25 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title)
         return None
 
-    logger.info("Chapter '%s' (#%s): %d pages, %d headings detected",
-                structure.chapter_title, structure.chapter_number, structure.num_pages, len(structure.topics))
+    logger.info(
+        "\n--------------------------------------------------\n"
+        "Book Progress: Book %s / %s\n"
+        "Subject: %s\n"
+        "Official Book Title: %s\n"
+        "Current Processing Position: %s\n"
+        "Actual Chapter Number: %s\n"
+        "Official Chapter Title: %s\n"
+        "Source PDF: %s\n"
+        "Page Count: %d\n"
+        "Detected Heading Count: %d\n"
+        "--------------------------------------------------",
+        book_index if book_index is not None else "?",
+        total_books if total_books is not None else "?",
+        book_ctx.subject, book_ctx.book_title,
+        f"{processing_position}/{total_chapters_in_book}" if processing_position is not None
+        else "?", structure.chapter_number, structure.chapter_title,
+        os.path.basename(pdf_path), structure.num_pages, len(structure.topics),
+    )
 
     # ---- OCR (per page, text-layer first, tesseract fallback) ----
     ocr_results = ocr_engine.ocr_chapter_pages(pdf_path, lang=structure.language)
@@ -1755,7 +1776,8 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
 def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_BATCH_SIZE, force: bool = False,
                       pdf_folder: Optional[str] = None, output_root: Optional[str] = None,
                       book_title_override: Optional[str] = None,
-                      cancel_check: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
+                      cancel_check: Optional[Callable[[], bool]] = None,
+                      book_index: Optional[int] = None, total_books: Optional[int] = None) -> Dict[str, Any]:
     """Processes every chapter PDF in a single folder (one book's worth of PDFs).
 
     `pdf_folder` defaults to the top-level PDF_INPUT_FOLDER, and `output_root`
@@ -1800,11 +1822,19 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
         logger.info("Using prelims/TOC file: %s", os.path.basename(prelims_path))
     book_ctx = pdf_parser.load_book_context(prelims_path)
     if book_title_override:
-        # The folder name is authoritative for the book title -- never
-        # inferred from the PDFs themselves. subject/klass are left as
-        # whatever load_book_context/parse_chapter_pdf detected; the task
-        # only asks that the *book name* come from the folder.
-        book_ctx.book_title = book_title_override
+        # The folder name is authoritative for the book's OUTPUT IDENTITY
+        # (book_slug / output directory grouping) -- never inferred from
+        # the PDFs themselves. It is deliberately NOT written into
+        # book_ctx.book_title: that field is reserved for the OFFICIAL
+        # NCERT title parsed from the prelims/TOC PDF (see BookContext.
+        # book_folder_name's docstring for the regression this avoids).
+        # Only when no official title could be parsed at all (no prelims
+        # file, or parsing failed -- book_title is still the class
+        # default "untitled-book") do we fall back to the folder name as
+        # the displayed title too, since it's the only signal we have.
+        book_ctx.book_folder_name = book_title_override
+        if book_ctx.book_title == "untitled-book":
+            book_ctx.book_title = book_title_override
 
     # subject/klass fallback chain -- prelims parsing (above) is the
     # preferred source, but it silently comes back "unknown" whenever
@@ -1914,10 +1944,21 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
             # that decision is made (before the call, not inside it) and
             # that it is now recorded, per chapter, for Phase F3's own
             # ExecutionPlan/ExecutionReport.
+            # Bound via functools.partial rather than adding params to
+            # execute_chapter()/build_executor's own signature: process_chapter_fn
+            # is called by executor.py with the exact same (pdf_path, book_ctx,
+            # chapter_order_fallback=..., use_vlm=..., page_batch_size=...,
+            # force=..., output_root=...) call it always has -- these extra
+            # kwargs are pre-filled here and never seen by build_executor at
+            # all, so Phase F3's own architecture/contract is unchanged.
+            process_chapter_bound = functools.partial(
+                process_chapter, book_index=book_index, total_books=total_books,
+                processing_position=i, total_chapters_in_book=total,
+            )
             decision = _f3_execute_chapter(
                 pdf_path=pdf_path, book_ctx=book_ctx, chapter_order_fallback=chapter_order,
                 use_vlm=use_vlm, page_batch_size=page_batch_size, force=force,
-                output_root=output_root, process_chapter_fn=process_chapter,
+                output_root=output_root, process_chapter_fn=process_chapter_bound,
             )
             chapter_decisions.append(decision)
             out_path = decision["output_path"]
@@ -1935,7 +1976,7 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
 
     book_manifest_path = None
     if written and book_ctx.toc:
-        book_slug = slugify(book_ctx.book_title)
+        book_slug = slugify(pdf_parser.book_slug_source(book_ctx))
         book_manifest_path = json_writer.write_book_manifest(
             book_ctx.klass, book_ctx.subject, book_slug,
             book_ctx.book_title, book_ctx.toc, output_root=output_root)

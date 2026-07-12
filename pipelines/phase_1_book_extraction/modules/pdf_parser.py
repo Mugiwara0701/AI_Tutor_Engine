@@ -42,6 +42,17 @@ logger = logging.getLogger("ncert_pipeline.pdf_parser")
 # bigger than the title text itself. This was silently producing
 # chapter_title == "1" (see detect_chapter_title below).
 _PURE_NUMERAL_RE = re.compile(r"^[ivxlcdm\d]{1,4}\.?$", re.I)
+# A decorative "drop cap" -- the chapter's real opening letter set alone in
+# an oversized/illuminated font as its own text run, physically separate
+# from the rest of the title's normal-size text (e.g. a large "Y" sitting
+# beside "our Environment"). Root cause of the "Chapter 'Y'" placeholder-
+# title regression: on a title page where the drop cap is the single
+# largest font size present, the "biggest font wins" heuristic below picked
+# the lone letter itself as the chapter_title, never even attempting the
+# real title text at a smaller size right next to it. 1-2 bare letters is
+# never a genuine standalone NCERT chapter title, so it's excluded here the
+# same way bare chapter-number graphics already are.
+_DROP_CAP_RE = re.compile(r"^[A-Za-z]{1,2}\.?$")
 
 # Title must start with a letter -- but NOT specifically a Latin letter.
 # `[^\d\s]` (any non-digit, non-whitespace character) matches Devanagari
@@ -287,7 +298,12 @@ def detect_chapter_title(lines: List[Line], body_size: float, repeated: set) -> 
                   # real title next to them, so without this guard the
                   # "biggest font wins" heuristic below picks the numeral
                   # itself as the chapter_title instead of the actual title.
-                  and not _PURE_NUMERAL_RE.match(l.text.strip())]
+                  and not _PURE_NUMERAL_RE.match(l.text.strip())
+                  # Exclude a lone decorative drop-cap letter (see
+                  # _DROP_CAP_RE's docstring) -- same reasoning as the
+                  # numeral guard above, for the same "biggest font wins"
+                  # heuristic, one line down.
+                  and not _DROP_CAP_RE.match(l.text.strip())]
     if not candidates:
         return "untitled-chapter"
     best_size = max(c.size for c in candidates)
@@ -498,6 +514,37 @@ def make_urn(namespace: str, *parts: str) -> str:
     return f"urn:{board_namespace}:{namespace}:" + ":".join(slug_parts)
 
 
+def _display_subject(subject: str) -> str:
+    """Canonicalizes a resolved subject into the properly-cased form used
+    everywhere metadata is displayed (JSON document.subject, manifests,
+    runtime logs) -- e.g. "accountancy" -> "Accountancy", "political
+    science" -> "Political Science", "computer-science" -> "Computer
+    Science".
+
+    Root cause this fixes: KNOWN_SUBJECTS (just below) and every match
+    against it are deliberately all-lowercase -- that's an internal
+    matching vocabulary, not display text, and one entry ("computer-
+    science") only exists in hyphenated form to match filenames/folder
+    names. Both places that resolve a subject via this vocabulary
+    (parse_book_title_and_class()'s "textbook in X for class Y" regex,
+    whose captured group is also lowercased for the same
+    consistent-matching reason, and auto_detect_subject() below) used to
+    return that lowercase matching key AS the canonical subject too,
+    which is where "Accountancy" first became "accountancy" -- silently,
+    at the very origin of the metadata, before any downstream code (or
+    the runtime log) ever saw it.
+
+    The "unknown" sentinel is deliberately left untouched: every caller
+    across this module and pipeline.py compares against the literal
+    lowercase string "unknown" (see e.g. pipeline.py's
+    `book_ctx.subject == "unknown"` fallback-chain gate) -- title-casing
+    it to "Unknown" would silently break every one of those checks.
+    """
+    if subject == "unknown":
+        return subject
+    return subject.replace("-", " ").title()
+
+
 def auto_detect_subject(filename: str, first_page_text: str) -> str:
     # Longest-first: without this, scanning first_page_text for e.g. "science"
     # (a generic word that shows up incidentally in almost any subject's
@@ -516,10 +563,10 @@ def auto_detect_subject(filename: str, first_page_text: str) -> str:
     haystack = filename.lower().replace("_", " ").replace("-", " ")
     found = _search(haystack)
     if found:
-        return found
+        return _display_subject(found)
     found = _search(first_page_text.lower())
     if found:
-        return found
+        return _display_subject(found)
     return "unknown"
 
 
@@ -645,7 +692,7 @@ def parse_book_title_and_class(lines: List[Line], body_size: float, repeated: se
                     break
             if subject != "unknown":
                 break
-    return book_title, subject, klass
+    return book_title, _display_subject(subject), klass
 
 
 def _is_contents_heading(text: str) -> bool:
@@ -794,6 +841,42 @@ class BookContext:
     # found) -- callers (parse_chapter_pdf) fall back to per-chapter
     # detection in that case rather than treating None as English.
     language: Optional[str] = None
+    # Set by pipeline.process_all_pdfs() from book_orchestrator's
+    # discovered folder name (book_title_override param), when given.
+    # This is ONLY the output-directory/identity key -- it keeps sibling
+    # books (or sibling "Part N" folders of the same subject) from
+    # colliding in json_out/, per book_orchestrator.py's own docstring.
+    # It is deliberately kept separate from `book_title` (the OFFICIAL
+    # NCERT title, parsed from the prelims/TOC PDF) so that slugifying
+    # the folder name for output-path purposes never clobbers the real
+    # displayed book title in the extracted JSON. This decoupling fixes
+    # the regression where book_title_override overwrote `book_title`
+    # directly, silently replacing official titles like "Introductory to
+    # Macroeconomics" with whatever the input folder happened to be named
+    # (e.g. "Macroeconomics"). `book_slug` (wherever it's computed) should
+    # prefer this field over `book_title` when set; `book_title` itself
+    # is never touched by the override unless no official title could be
+    # parsed at all (still "untitled-book").
+    book_folder_name: Optional[str] = None
+
+    @property
+    def slug_source(self) -> str:
+        """Authoritative source for this book's output-directory identity
+        (book_slug). Prefers the discovered folder name (book_folder_name)
+        -- the never-inferred-from-PDFs identity book_orchestrator.py's
+        docstring requires -- and falls back to the parsed official title
+        only for the legacy loose-PDF case where there is no folder name
+        at all."""
+        return self.book_folder_name or self.book_title
+
+
+def book_slug_source(book_ctx: Any) -> str:
+    """getattr-safe equivalent of BookContext.slug_source, for callers
+    that may receive a duck-typed book_ctx double (e.g. test doubles that
+    only set book_title/subject/klass/toc) instead of a real BookContext
+    instance -- avoids an AttributeError on the new book_folder_name
+    field for any such caller that predates it."""
+    return getattr(book_ctx, "book_folder_name", None) or book_ctx.book_title
 
 
 def load_book_context(prelims_path: Optional[str]) -> BookContext:

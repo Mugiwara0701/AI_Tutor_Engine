@@ -121,7 +121,12 @@ def execute_chapter(
     unchanged.
     """
     structure = pdf_parser.parse_chapter_pdf(pdf_path, book_ctx, chapter_order_fallback)
-    book_slug = slugify(book_ctx.book_title)
+    # Must match pipeline.process_chapter()'s own book_slug source exactly
+    # (book_ctx.slug_source, i.e. the discovered folder name when one
+    # exists) -- this is the SAME reuse/output-path key process_chapter_fn
+    # will compute, and any divergence here silently breaks the reuse gate
+    # (is_already_extracted() would check the wrong directory).
+    book_slug = slugify(pdf_parser.book_slug_source(book_ctx))
     chapter_key = json_writer.chapter_output_path(
         structure.klass, structure.subject, book_slug,
         structure.chapter_number, structure.chapter_title,

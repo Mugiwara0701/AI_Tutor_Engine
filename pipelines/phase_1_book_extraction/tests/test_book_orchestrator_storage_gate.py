@@ -29,7 +29,7 @@ class _FakePipeline:
         self.calls = []
 
     def process_all_pdfs(self, use_vlm, page_batch_size, force, pdf_folder=None,
-                          output_root=None, book_title_override=None):
+                          output_root=None, book_title_override=None, **_additive_kwargs):
         self.calls.append(pdf_folder)
         return {"found": 1, "written": 1, "failed": 0, "book_title": book_title_override}
 

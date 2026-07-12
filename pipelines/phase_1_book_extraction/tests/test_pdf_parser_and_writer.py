@@ -107,12 +107,16 @@ def test_auto_detect_subject_prefers_specific_subject_over_incidental_word():
     first_page_text = ("Management is regarded both as an art and a science. "
                         "This chapter is part of the Business Studies syllabus.")
     subject = auto_detect_subject(filename, first_page_text)
-    assert subject == "business studies"
+    # auto_detect_subject() returns canonically-cased display metadata
+    # (see modules/pdf_parser.py's _display_subject() docstring for the
+    # "Accountancy" -> "accountancy" regression this fixes) -- internal
+    # matching against KNOWN_SUBJECTS still happens in lowercase.
+    assert subject == "Business Studies"
 
 
 def test_auto_detect_subject_falls_back_to_generic_word_when_thats_all_there_is():
     subject = auto_detect_subject("leph101.pdf", "This chapter covers topics in physical science.")
-    assert subject == "science"
+    assert subject == "Science"
 
 
 # ---------------------------------------------------------------------------

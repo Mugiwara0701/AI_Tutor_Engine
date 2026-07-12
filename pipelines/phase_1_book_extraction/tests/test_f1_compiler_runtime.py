@@ -411,7 +411,8 @@ class _FakePipelineModule:
         self.calls = []
 
     def process_all_pdfs(self, use_vlm, page_batch_size, force, pdf_folder=None,
-                          output_root=None, book_title_override=None, cancel_check=None):
+                          output_root=None, book_title_override=None, cancel_check=None,
+                          **_additive_kwargs):
         self.calls.append(dict(pdf_folder=pdf_folder, book_title_override=book_title_override,
                                 cancel_check_provided=cancel_check is not None))
         return {"found": 1, "written": 1, "failed": 0, "book_title": book_title_override or "untitled"}

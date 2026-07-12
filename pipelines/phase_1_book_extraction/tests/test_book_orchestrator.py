@@ -123,7 +123,7 @@ class _FakePipeline:
         self.raise_for_folder = raise_for_folder
 
     def process_all_pdfs(self, use_vlm, page_batch_size, force, pdf_folder=None,
-                          output_root=None, book_title_override=None):
+                          output_root=None, book_title_override=None, **_additive_kwargs):
         self.calls.append(dict(use_vlm=use_vlm, page_batch_size=page_batch_size, force=force,
                                 pdf_folder=pdf_folder, output_root=output_root,
                                 book_title_override=book_title_override))
