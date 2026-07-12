@@ -114,6 +114,8 @@ from incremental_compilation_validation.engine import validate_incremental_compi
 from incremental_compilation_validation import state as incremental_compilation_validation_state
 from incremental_compilation_finalization.finalize import finalize_incremental_compilation
 from incremental_compilation_finalization import state as incremental_compilation_finalization_state
+from build_executor.executor import execute_chapter as _f3_execute_chapter
+from build_executor.plan import generate_execution_plan as _f3_generate_execution_plan
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1874,6 +1876,10 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
     written = []
     failed = 0
     cancelled = False
+    # Phase F3 (build_executor/): one decision dict per chapter this call
+    # actually considered (appended by _f3_execute_chapter() below),
+    # feeding this book's own ExecutionPlan once the loop finishes.
+    chapter_decisions: List[Dict[str, Any]] = []
     for i, pdf_path in enumerate(chapter_paths, start=1):
         if cancel_check is not None and cancel_check():
             logger.info("Cancellation requested; stopping before chapter %d/%d in '%s'.",
@@ -1897,9 +1903,24 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
                     "Could not parse a chapter number from filename '%s'; falling back to "
                     "this run's processing position (#%d), which is only correct if every "
                     "chapter of the book is present in this run.", os.path.basename(pdf_path), i)
-            out_path = process_chapter(pdf_path, book_ctx, chapter_order_fallback=chapter_order,
-                                        use_vlm=use_vlm, page_batch_size=page_batch_size, force=force,
-                                        output_root=output_root)
+            # Phase F3 (build_executor/) integration point: execute_chapter()
+            # IS the pre-execution reuse gate -- it decides reuse/rebuild
+            # and only calls process_chapter() (this module's own,
+            # unchanged, extraction entry point -- passed in, never
+            # imported by build_executor, see executor.py's own DEPENDENCY
+            # INJECTION note) when a rebuild is actually required. This
+            # does not change what gets written, when a chapter is
+            # skipped, or this function's own return shape -- only WHERE
+            # that decision is made (before the call, not inside it) and
+            # that it is now recorded, per chapter, for Phase F3's own
+            # ExecutionPlan/ExecutionReport.
+            decision = _f3_execute_chapter(
+                pdf_path=pdf_path, book_ctx=book_ctx, chapter_order_fallback=chapter_order,
+                use_vlm=use_vlm, page_batch_size=page_batch_size, force=force,
+                output_root=output_root, process_chapter_fn=process_chapter,
+            )
+            chapter_decisions.append(decision)
+            out_path = decision["output_path"]
             if out_path:
                 written.append(out_path)
                 print("✓ Chapter JSON Generated")
@@ -1938,6 +1959,41 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
     # written/failed/book_title are unaffected.
     stats["written_paths"] = list(written)
     stats["book_manifest_path"] = book_manifest_path
+    # Phase F3 audit refinement: surface Phase E4's own already-computed
+    # `rebuild_order` (incremental_compilation_state's single, chapter-
+    # scoped slot -- set by this book's own chapter loop above, right
+    # after plan_incremental_compilation() finishes for whichever
+    # chapter was last REBUILT this run; still None if every chapter in
+    # this book was reused, since a "reuse" decision never calls
+    # process_chapter_fn() and therefore never runs Phase E4 at all)
+    # into this book's own ExecutionPlan. This reads the exact same
+    # already-computed value get_current_incremental_compilation_plan()
+    # already exposes -- no new traversal, no re-planning, no second
+    # call into incremental_compilation.engine.
+    _current_incremental_plan = (
+        incremental_compilation_state.get_current_incremental_compilation_plan()
+    )
+    _dependency_rebuild_order = (
+        list(_current_incremental_plan.get("rebuild_order") or [])
+        if _current_incremental_plan
+        else []
+    )
+    # Additive keys (Phase F3, build_executor/): this book's own
+    # ExecutionPlan, plus the chapter output paths Phase F3 actually
+    # reused (never called process_chapter() for) this run -- so a
+    # caller above pipeline.py (CompilerRuntime/build_executor reads
+    # this one layer up still) can build a run-level ExecutionPlan/
+    # ExecutionReport without re-deriving any decision this call
+    # already made. Same "only ever present additively" contract as
+    # `written_paths`/`book_manifest_path` above -- existing callers
+    # that only read found/written/failed/book_title are unaffected.
+    stats["execution_plan"] = _f3_generate_execution_plan(
+        chapter_decisions, namespace=book_ctx.book_title,
+        dependency_rebuild_order=_dependency_rebuild_order,
+    )
+    stats["reused_paths"] = [
+        d["chapter_key"] for d in chapter_decisions if d["decision"] == "reuse"
+    ]
     return stats
 
 

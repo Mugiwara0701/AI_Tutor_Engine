@@ -172,6 +172,17 @@ class CompilerRuntime:
             )
 
         try:
+            from build_executor import state as execution_state
+            execution_state.reset_current_execution_report()
+        except Exception:
+            logger.exception(
+                "build_executor: failed to reset current-execution-report "
+                "state at the start of this run; continuing (this run's "
+                "own Execution Report will still overwrite it once "
+                "recorded)."
+            )
+
+        try:
             all_stats = book_orchestrator.run(
                 use_vlm=context.use_vlm,
                 page_batch_size=context.page_batch_size,
@@ -184,6 +195,7 @@ class CompilerRuntime:
             runtime_state.set_current_error(str(exc))
             runtime_state.set_current_status(RuntimeStatus.FAILED)
             self._record_build(context, RuntimeStatus.FAILED, [], str(exc), started_at)
+            self._record_execution([])
             raise
 
         books_completed = len(all_stats)
@@ -200,6 +212,7 @@ class CompilerRuntime:
         else:
             runtime_state.set_current_status(RuntimeStatus.COMPLETED)
         self._record_build(context, runtime_state.get_current_status(), all_stats, None, started_at)
+        self._record_execution(all_stats)
         return all_stats
 
     def _record_build(
@@ -266,6 +279,57 @@ class CompilerRuntime:
             logger.exception(
                 "artifact_manager: failed to build/manifest/persist this "
                 "run's Build; run()'s own result/status is unaffected."
+            )
+
+    def _record_execution(
+        self,
+        all_stats: List[Dict[str, Any]],
+    ) -> None:
+        """Phase F3 integration point: aggregates every book's own
+        ExecutionPlan (each book's stats dict's additive
+        `"execution_plan"` key -- see pipeline.process_all_pdfs()'s own
+        integration of build_executor.executor.execute_chapter()) into
+        one run-level ExecutionPlan + ExecutionReport and records it via
+        build_executor.state.set_current_execution_report(). Called
+        immediately after _record_build() above, on both the failure
+        path (with an empty `all_stats`, mirroring _record_build()'s own
+        "a FAILED run still gets a record" contract) and the success/
+        cancelled path.
+
+        Never raises: any failure here is logged and swallowed, same
+        "a broken observer must never abort the run" principle
+        _record_build() itself already applies -- Phase F3's own
+        bookkeeping can never turn a successful (or already-recorded)
+        run into a second, different failure for run()'s caller."""
+        try:
+            from artifact_manager import state as build_state
+            from build_executor import state as execution_state
+            from build_executor.executor import aggregate_run_execution_report
+
+            # This run's own duration, read verbatim off the Build Phase
+            # F2 just recorded (create_build()'s own execution_summary)
+            # -- never independently re-timed here, so Phase F3's own
+            # reported duration always agrees with Phase F2's (see
+            # report.py's own module docstring). Falls back to None if
+            # Phase F2's own bookkeeping failed this run (see
+            # _record_build()'s own "never raises" contract) -- an
+            # Execution Report with an unknown duration is still valid
+            # (ExecutionReport.execution_duration_seconds is Optional).
+            current_build = build_state.get_current_build()
+            duration_seconds = None
+            if current_build is not None:
+                duration_seconds = (current_build.execution_summary or {}).get(
+                    "duration_seconds"
+                )
+
+            result = aggregate_run_execution_report(
+                all_stats, execution_duration_seconds=duration_seconds
+            )
+            execution_state.set_current_execution_report(result["execution_report"])
+        except Exception:
+            logger.exception(
+                "build_executor: failed to aggregate/record this run's "
+                "Execution Report; run()'s own result/status is unaffected."
             )
 
     def _on_book_progress(self, book_stats: dict) -> None:
