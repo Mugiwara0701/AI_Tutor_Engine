@@ -183,6 +183,17 @@ class CompilerRuntime:
             )
 
         try:
+            from cache import state as cache_state
+            cache_state.reset_current_cache_state()
+        except Exception:
+            logger.exception(
+                "cache: failed to reset current-cache state at the start "
+                "of this run; continuing (this run's own CacheEntry/"
+                "CacheValidationReport will still overwrite it once "
+                "recorded)."
+            )
+
+        try:
             all_stats = book_orchestrator.run(
                 use_vlm=context.use_vlm,
                 page_batch_size=context.page_batch_size,
@@ -196,6 +207,7 @@ class CompilerRuntime:
             runtime_state.set_current_status(RuntimeStatus.FAILED)
             self._record_build(context, RuntimeStatus.FAILED, [], str(exc), started_at)
             self._record_execution([])
+            self._record_cache()
             raise
 
         books_completed = len(all_stats)
@@ -213,6 +225,7 @@ class CompilerRuntime:
             runtime_state.set_current_status(RuntimeStatus.COMPLETED)
         self._record_build(context, runtime_state.get_current_status(), all_stats, None, started_at)
         self._record_execution(all_stats)
+        self._record_cache()
         return all_stats
 
     def _record_build(
@@ -332,6 +345,97 @@ class CompilerRuntime:
                 "Execution Report; run()'s own result/status is unaffected."
             )
 
+    def _record_cache(self) -> None:
+        """Phase F4.1 integration point: persists this run's own
+        fingerprint snapshot (read verbatim off the Build Phase F2 just
+        recorded) so a LATER run can finally read what THIS run's own
+        last-processed-chapter fingerprints were, and generates a
+        read-only CacheValidationReport comparing the previous cached
+        build's fingerprints against this run's own, alongside Phase
+        F3's own already-made Execution Plan. Called immediately after
+        _record_execution() above, on both the failure path (mirroring
+        _record_build()'s/_record_execution()'s own "a FAILED run still
+        gets a record" contract -- there is nothing to cache/validate
+        without a manifested Build, so this is a no-op in that case,
+        not an error) and the success/cancelled path.
+
+        Never raises: any failure here is logged and swallowed, same
+        "a broken observer must never abort the run" principle
+        _record_build()/_record_execution() already apply -- Phase
+        F4.1's own bookkeeping can never turn a successful (or
+        already-recorded) run into a second, different failure for
+        run()'s caller.
+
+        Read-only over everything it doesn't itself produce: never
+        mutates the Build, Build Manifest, ExecutionPlan, or
+        ExecutionReport it reads; never re-decides reuse/rebuild for
+        any chapter; never affects book_orchestrator.run()'s own
+        already-completed extraction for this run."""
+        try:
+            from artifact_manager import state as build_state
+            from build_executor import state as execution_state
+            from cache import state as cache_state
+            from cache.snapshot_store import build_cache_entry, persist_fingerprint_snapshot
+            from cache.reuse import select_previous_snapshot
+            from cache.validation import validate_execution_against_cache
+            from modules import json_writer
+
+            current_build = build_state.get_current_build()
+            if current_build is None or not current_build.build_manifest:
+                # Phase F2's own bookkeeping never completed this run
+                # (e.g. _record_build() itself already failed and
+                # logged) -- nothing to cache or validate against.
+                # Not an error: same "nothing yet is a normal state"
+                # treatment every other Phase F integration point
+                # already applies.
+                logger.info(
+                    "cache: no manifested Build available for this run; "
+                    "skipping fingerprint snapshot persistence/validation."
+                )
+                return
+
+            storage = json_writer.get_storage()
+
+            # The previous run's own cached entry, strictly before this
+            # run's own build_id -- read BEFORE this run's own entry is
+            # persisted below, so a run is never compared against
+            # itself. Phase F4.2's own select_previous_snapshot() (see
+            # cache/reuse.py) is used here rather than F4.1's own
+            # snapshot_store.load_previous_cache_entry(): both return
+            # None under the same "nothing yet" conditions, but F4.2's
+            # version additionally falls back to an older, still-usable
+            # snapshot when the single most recent one is unreadable or
+            # structurally invalid, rather than giving up immediately.
+            previous_entry = select_previous_snapshot(
+                storage, before_build_id=current_build.build_id
+            )
+            previous_snapshot = (
+                previous_entry.get("fingerprint_snapshot") if previous_entry else None
+            )
+            previous_build_id = previous_entry.get("build_id") if previous_entry else None
+
+            cache_entry = build_cache_entry(current_build)
+            persist_fingerprint_snapshot(storage, cache_entry)
+            cache_state.set_current_cache_entry(cache_entry)
+
+            current_execution_report = execution_state.get_current_execution_report() or {}
+            execution_plan = {
+                "summary": current_execution_report.get("execution_statistics") or {},
+            }
+            report = validate_execution_against_cache(
+                execution_plan,
+                cache_entry.get("fingerprint_snapshot") or {},
+                previous_snapshot,
+                build_id=current_build.build_id,
+                previous_build_id=previous_build_id,
+            )
+            cache_state.set_current_cache_validation_report(report)
+        except Exception:
+            logger.exception(
+                "cache: failed to persist/validate this run's fingerprint "
+                "snapshot; run()'s own result/status is unaffected."
+            )
+
     def _on_book_progress(self, book_stats: dict) -> None:
         """Forwarded as book_orchestrator.run()'s own progress_callback:
         updates runtime/state.py's progress snapshot after each book
@@ -441,6 +545,10 @@ class CompilerRuntime:
                 "error": str or None,
             }
 
+        (Cache bookkeeping is intentionally not included here -- see
+        cache_status(), a separate read-only method just below, for
+        why.)
+
         Safe to call at any time, including while another thread is
         inside run() -- it only reads runtime/state.py's slots, it never
         mutates anything (F0 §13's "preserve read-only behaviour" -- the
@@ -460,6 +568,106 @@ class CompilerRuntime:
             "progress": runtime_state.get_current_progress(),
             "error": runtime_state.get_current_error(),
         }
+
+    def cache_status(self) -> Dict[str, Any]:
+        """Phase F4.2: a read-only summary of the current/most-recent
+        run's own cache bookkeeping, sourced entirely from cache/
+        state.py's own already-populated slots (set by _record_cache()
+        above) -- no new I/O, no storage access.
+
+        Deliberately NOT folded into status() (see that method's own
+        docstring, whose documented return shape this must not
+        silently expand): status()'s own "same fake orchestrator
+        behavior -> same status()" determinism contract (see
+        tests/test_f1_compiler_runtime.py's own
+        test_two_runtimes_given_identical_inputs_reach_identical_status,
+        Phase F1, frozen) cannot hold for fields that are inherently
+        run-unique (`build_id`) or cross-run-history-dependent
+        (`comparison_basis`/`overall_status`, which legitimately differ
+        between a first-ever run with no cached baseline and a later
+        run that now has one, even given byte-for-byte identical
+        orchestrator behavior). Exposing that information via its own
+        method preserves status()'s existing, tested contract exactly
+        while still giving a caller everywhere this data already
+        existed to reach it.
+
+        Mirrors status()'s own "read-only snapshot" contract otherwise:
+        calling this never mutates anything and is safe at any time,
+        including mid-run.
+
+        Returns:
+            {
+                "has_cache_entry": bool,
+                "build_id": str or None,
+                "previous_build_id": str or None,
+                "comparison_basis": str or None,
+                "overall_status": str or None,  # NO_BASELINE/CONSISTENT/DIVERGENT
+            }
+
+        Every field is None (except the two bools, which are False)
+        when no run has completed yet in this process, or when Phase
+        F4.1's/F4.2's own bookkeeping itself failed and was swallowed
+        (see _record_cache()'s own "never raises" contract) -- same
+        "nothing yet is a normal state" convention this class already
+        applies everywhere else."""
+        from cache import state as cache_state
+
+        cache_entry = cache_state.get_current_cache_entry()
+        validation_report = cache_state.get_current_cache_validation_report()
+        return {
+            "has_cache_entry": cache_entry is not None,
+            "build_id": cache_entry.get("build_id") if cache_entry else None,
+            "previous_build_id": (
+                validation_report.get("previous_build_id") if validation_report else None
+            ),
+            "comparison_basis": (
+                validation_report.get("comparison_basis") if validation_report else None
+            ),
+            "overall_status": (
+                validation_report.get("overall_status") if validation_report else None
+            ),
+        }
+
+    # -- Phase F4.2: cache reuse introspection ---------------------------
+
+    def cache_history(self) -> List[Dict[str, Any]]:
+        """Every persisted build's own CacheEntry, oldest first -- a
+        thin pass-through to cache.index.cache_history() over this
+        runtime's own already-authenticated storage instance (reused
+        via modules.json_writer.get_storage(), never a second
+        OneDriveStorage()). Read-only; safe to call at any time,
+        including before any run() has ever completed (returns an empty
+        list, same "nothing yet" convention cache.index.cache_history()
+        itself already documents)."""
+        from cache.index import cache_history as _cache_history
+        from modules import json_writer
+
+        return _cache_history(json_writer.get_storage())
+
+    def previous_cache_entry(self) -> Optional[Dict[str, Any]]:
+        """The most recent persisted CacheEntry a NEXT run() would
+        consume as its own previous snapshot -- Phase F4.2's own
+        cache.reuse.select_previous_snapshot(), exposed here as a
+        read-only runtime-level convenience so a caller can inspect
+        what a future run will compare against without needing to
+        import the cache package directly. Returns None if no usable
+        previous snapshot exists yet (first run ever, or every
+        persisted record is unreadable/invalid)."""
+        from cache.reuse import select_previous_snapshot
+        from modules import json_writer
+
+        return select_previous_snapshot(json_writer.get_storage())
+
+    def cache_optimization_report(self) -> Dict[str, Any]:
+        """Phase F4.2's own cross-run CacheOptimizationReport (see
+        cache/optimization_report.py) -- how many persisted builds have
+        a usable fingerprint snapshot and how often consecutive builds'
+        own fingerprints actually changed, across this project's entire
+        persisted build history. Read-only; safe to call at any time."""
+        from cache.reuse import analyze_cache_reuse
+        from modules import json_writer
+
+        return analyze_cache_reuse(json_writer.get_storage())
 
     def shutdown(self) -> None:
         """Permanently retires this CompilerRuntime instance: clears

@@ -75,7 +75,9 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import itertools
 import json
+import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -206,19 +208,50 @@ def build_reference_snapshot() -> ReferenceSnapshot:
     )
 
 
+_build_id_lock = threading.Lock()
+_build_id_sequence = itertools.count()
+
+
+def _next_build_id_sequence() -> int:
+    """Process-wide, strictly-increasing counter -- exists solely to
+    break ties between two build ids whose own wall-clock timestamp
+    (see `stamp` below) is identical down to the microsecond. datetime's
+    own resolution tops out at microseconds (`%f`), and two builds can
+    genuinely be started within the same microsecond (observed on
+    Windows, where the underlying clock's actual resolution is
+    frequently coarser than the value's own microsecond formatting
+    implies); a random uuid4 suffix cannot disambiguate that case in
+    creation order, since it carries no ordering information at all."""
+    with _build_id_lock:
+        return next(_build_id_sequence)
+
+
 def _generate_build_id(started_at: datetime) -> str:
     """Deterministic-shape, collision-resistant build id:
-    "build-<UTC compact timestamp>-<short uuid4 suffix>". Timestamp
-    first so build ids sort chronologically by construction (same
-    "identifier is naturally orderable" property compiler/knowledge_graph
-    ids already have via their own identity.py modules); the uuid4
-    suffix (not a hash of build contents) is what actually guarantees
-    uniqueness for two builds started in the same second, mirroring
-    this codebase's existing precedent of using uuid4 for exactly this
-    "identity, not content-derived" purpose (see e.g.
-    knowledge_graph.identity's own node/edge id generation)."""
+    "build-<UTC compact timestamp>-<zero-padded sequence>-<short uuid4
+    suffix>". Timestamp first so build ids sort chronologically by
+    construction (same "identifier is naturally orderable" property
+    compiler/knowledge_graph ids already have via their own identity.py
+    modules) -- cache/index.py's own list_cache_entries()/cache_history()
+    and cache/reuse.py's own previous-snapshot selection both depend on
+    this ordering holding exactly, not just "usually."
+
+    The zero-padded sequence component is what actually makes that
+    ordering hold even when two builds share an identical timestamp
+    down to the microsecond (see _next_build_id_sequence()'s own
+    docstring) -- a plain uuid4 suffix alone cannot do this, since it
+    carries no ordering information; two builds started in the same
+    microsecond would then sort by an effectively random suffix,
+    silently reversing their real creation order. The uuid4 suffix
+    itself is kept, unchanged in role, purely for cross-process/
+    cross-restart uniqueness (the sequence counter alone resets to 0
+    every new process), mirroring this codebase's existing precedent of
+    using uuid4 for exactly this "identity, not content-derived"
+    purpose (see e.g. knowledge_graph.identity's own node/edge id
+    generation)."""
     stamp = started_at.strftime("%Y%m%dT%H%M%S%fZ")
-    return f"build-{stamp}-{uuid.uuid4().hex[:12]}"
+    sequence = _next_build_id_sequence()
+    return f"build-{stamp}-{sequence:010d}-{uuid.uuid4().hex[:12]}"
 
 
 @dataclass(frozen=True)

@@ -159,6 +159,32 @@ def test_create_build_basic_shape():
     assert build.knowledge_graph_reference is None
 
 
+def test_build_ids_sort_chronologically_even_under_a_timestamp_collision():
+    """Regression test: two builds started at the exact same
+    microsecond (datetime resolution tops out at %f) must still
+    produce build ids that sort in real creation order -- a plain
+    uuid4 suffix cannot guarantee this on its own, since it carries no
+    ordering information, and cache/index.py's own list_cache_entries()/
+    cache_history() plus cache/reuse.py's own previous-snapshot
+    selection both depend on build_id ordering matching real creation
+    order exactly (this is exactly what broke
+    tests/test_f4_2_cache_reuse.py's own
+    test_runtime_cache_history_reflects_persisted_builds and
+    test_third_run_falls_back_past_a_corrupted_second_snapshot before
+    _generate_build_id()'s own sequence-counter fix)."""
+    from artifact_manager.build import _generate_build_id
+
+    same_instant = datetime(2026, 7, 12, 5, 42, 54, 227860, tzinfo=timezone.utc)
+    first = _generate_build_id(same_instant)
+    second = _generate_build_id(same_instant)
+
+    assert first != second
+    assert first < second, (
+        "build ids generated at an identical timestamp must still sort "
+        "in creation order"
+    )
+
+
 def test_create_build_rejects_non_list_all_stats():
     context = ExecutionContext(use_vlm=False, page_batch_size=6, force=False, pdf_input_folder=None)
     with pytest.raises(BuildError):
