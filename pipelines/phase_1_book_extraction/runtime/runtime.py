@@ -194,6 +194,17 @@ class CompilerRuntime:
             )
 
         try:
+            from compiler_release import state as release_state
+            release_state.reset_current_release_manifest_state()
+        except Exception:
+            logger.exception(
+                "compiler_release: failed to reset current-release-"
+                "manifest state at the start of this run; continuing "
+                "(this run's own CompilerReleaseManifest will still "
+                "overwrite it once recorded)."
+            )
+
+        try:
             all_stats = book_orchestrator.run(
                 use_vlm=context.use_vlm,
                 page_batch_size=context.page_batch_size,
@@ -208,6 +219,7 @@ class CompilerRuntime:
             self._record_build(context, RuntimeStatus.FAILED, [], str(exc), started_at)
             self._record_execution([])
             self._record_cache()
+            self._record_release()
             raise
 
         books_completed = len(all_stats)
@@ -226,6 +238,7 @@ class CompilerRuntime:
         self._record_build(context, runtime_state.get_current_status(), all_stats, None, started_at)
         self._record_execution(all_stats)
         self._record_cache()
+        self._record_release()
         return all_stats
 
     def _record_build(
@@ -434,6 +447,82 @@ class CompilerRuntime:
             logger.exception(
                 "cache: failed to persist/validate this run's fingerprint "
                 "snapshot; run()'s own result/status is unaffected."
+            )
+
+    def _record_release(self) -> None:
+        """Phase F5 integration point: aggregates this run's own
+        already-recorded RuntimeStatus (Phase F1), Build/Build Manifest
+        (Phase F2), Execution Report (Phase F3), and CacheEntry/
+        CacheValidationReport (Phase F4) into one final
+        CompilerReleaseManifest, persists it, and records it via
+        compiler_release.state.set_current_release_manifest(). Called
+        immediately after _record_cache() above, on both the failure
+        path (mirroring _record_build()'s/_record_execution()'s/
+        _record_cache()'s own "a FAILED run still gets a record"
+        contract -- there is nothing to finalize without a manifested
+        Build, so this is a no-op in that case, not an error) and the
+        success/cancelled path.
+
+        Never raises: any failure here is logged and swallowed, same
+        "a broken observer must never abort the run" principle
+        _record_build()/_record_execution()/_record_cache() already
+        apply -- Phase F5's own bookkeeping can never turn a successful
+        (or already-recorded) run into a second, different failure for
+        run()'s caller.
+
+        Read-only over everything it doesn't itself produce: never
+        mutates the Build, Build Manifest, Execution Report, CacheEntry,
+        or CacheValidationReport it reads; never re-decides anything any
+        earlier phase already decided; never affects
+        book_orchestrator.run()'s own already-completed extraction for
+        this run."""
+        try:
+            from artifact_manager import state as build_state
+            from build_executor import state as execution_state
+            from cache import state as cache_state
+            from compiler_release import state as release_state
+            from compiler_release.finalize import finalize_release
+            from compiler_release.persistence import persist_release_manifest
+            from modules import json_writer
+
+            current_build = build_state.get_current_build()
+            if current_build is None or not current_build.build_manifest:
+                # Phase F2's own bookkeeping never completed this run
+                # (e.g. _record_build() itself already failed and
+                # logged) -- nothing to finalize a release for. Not an
+                # error: same "nothing yet is a normal state" treatment
+                # every other Phase F integration point already
+                # applies.
+                logger.info(
+                    "compiler_release: no manifested Build available for "
+                    "this run; skipping release manifest generation."
+                )
+                return
+
+            chapters_failed = int(
+                (runtime_state.get_current_progress() or {}).get(
+                    "chapters_failed"
+                ) or 0
+            )
+
+            manifest = finalize_release(
+                runtime_state.get_current_status(),
+                current_build,
+                execution_state.get_current_execution_report(),
+                cache_state.get_current_cache_entry(),
+                cache_state.get_current_cache_validation_report(),
+                chapters_failed=chapters_failed,
+            )
+
+            storage = json_writer.get_storage()
+            persist_release_manifest(storage, manifest)
+
+            release_state.set_current_release_manifest(manifest)
+        except Exception:
+            logger.exception(
+                "compiler_release: failed to generate/persist this run's "
+                "CompilerReleaseManifest; run()'s own result/status is "
+                "unaffected."
             )
 
     def _on_book_progress(self, book_stats: dict) -> None:
@@ -664,6 +753,50 @@ class CompilerRuntime:
         a usable fingerprint snapshot and how often consecutive builds'
         own fingerprints actually changed, across this project's entire
         persisted build history. Read-only; safe to call at any time."""
+        from cache.reuse import analyze_cache_reuse
+        from modules import json_writer
+
+        return analyze_cache_reuse(json_writer.get_storage())
+
+    # -- Phase F5: release introspection ---------------------------------
+
+    def release_manifest(self) -> Optional[Dict[str, Any]]:
+        """The current/most-recent run's own CompilerReleaseManifest, or
+        None if no run has completed yet in this process (or Phase F5's
+        own bookkeeping failed and was swallowed -- see _record_release()'s
+        own "never raises" contract). Read-only; sourced entirely from
+        compiler_release/state.py's own already-populated slot (set by
+        _record_release() above) -- no new I/O, no storage access."""
+        from compiler_release import state as release_state
+
+        return release_state.get_current_release_manifest()
+
+    def release_history(self) -> List[Dict[str, Any]]:
+        """Every persisted CompilerReleaseManifest, oldest first -- a
+        thin pass-through to compiler_release.discovery.release_history()
+        over this runtime's own already-authenticated storage instance
+        (reused via modules.json_writer.get_storage(), never a second
+        OneDriveStorage()). Read-only; safe to call at any time,
+        including before any run() has ever completed (returns an empty
+        list, same "nothing yet" convention
+        compiler_release.discovery.release_history() itself already
+        documents)."""
+        from compiler_release.discovery import release_history as _release_history
+        from modules import json_writer
+
+        return _release_history(json_writer.get_storage())
+
+    def release_optimization_context(self) -> Dict[str, Any]:
+        """Thin pass-through to cache.reuse.analyze_cache_reuse() (Phase
+        F4.2, unchanged) -- included here only as a convenience so a
+        caller building a human-facing release dashboard doesn't need to
+        import cache/ directly. Computes nothing Phase F4 doesn't already
+        compute, and is kept explicitly separate from release_manifest()'s
+        own required Final Release Status verdict: this cross-run
+        analysis reflects the whole project's persisted build history,
+        never this run alone, so it must never feed into
+        determine_final_release_status() (see compiler_release/
+        finalize.py's own module docstring)."""
         from cache.reuse import analyze_cache_reuse
         from modules import json_writer
 
