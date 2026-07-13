@@ -1,8 +1,9 @@
 // src/features/settings/components/EmployeeManagementSection.jsx
 //
-// Frontend-only Employee / User Management. All data lives in local React
-// state (see useEmployeeData) — no backend or database calls are made.
-
+// Employee / User Management. All create/read/update/delete actions call
+// the FastAPI backend (see useEmployeeData / employeeApi.js), which is the
+// only thing that talks to the database. Local React state just mirrors
+// the backend's response so the table updates without a full refetch.
 import { useState } from "react";
 import { UserPlus, Users } from "lucide-react";
 import { useEmployeeData } from "../hooks/useEmployeeData.js";

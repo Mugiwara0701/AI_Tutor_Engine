@@ -20,7 +20,7 @@ function mapUser(user) {
 }
 
 /**
- * Fetches every user in the system.
+ * Fetches active employees/users (backend defaults to is_active = true).
  */
 export async function fetchUsers() {
   const data = await apiRequest("/auth/users", { auth: true });
@@ -46,7 +46,9 @@ export async function updateUserRecord(id, { name, role, status } = {}) {
 }
 
 /**
- * Permanently deletes a user.
+ * Soft-deletes a user. The backend sets is_active=false rather than
+ * permanently removing the record, so the row remains in the database
+ * and simply drops out of the normal (active-only) employee list.
  */
 export async function deleteUserRecord(id) {
   await apiRequest(`/auth/users/${id}`, { method: "DELETE", auth: true });

@@ -2,7 +2,7 @@
 Authentication routes: /auth/register, /auth/login, /auth/logout, /auth/me,
 /auth/users (list/update/delete)
 """
-
+from fastapi import APIRouter, Depends, Query, Request
 import uuid
 
 from fastapi import APIRouter, Depends, Request
@@ -62,10 +62,14 @@ def me(current_user: UserProfile = Depends(get_current_user)):
 
 @router.get("/users", response_model=APIResponse)
 def list_users(
+    include_inactive: bool = Query(
+        default=False,
+        description="If true, also include soft-deleted/deactivated (is_active=false) employees.",
+    ),
     db: Session = Depends(get_db),
     current_user: UserProfile = Depends(get_current_user),
 ):
-    users = service.list_users(db)
+    users = service.list_users(db, include_inactive=include_inactive)
     data = [UserProfileOut.model_validate(user).model_dump(mode="json") for user in users]
     return success_response(message="Users fetched", data=data)
 
@@ -89,4 +93,4 @@ def delete_user(
     current_user: UserProfile = Depends(get_current_user),
 ):
     service.delete_user(db, user_id)
-    return success_response(message="User deleted")
+    return success_response(message="User deactivated")

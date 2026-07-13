@@ -122,8 +122,27 @@ def logout_user(db: Session, profile: UserProfile) -> None:
     db.commit()
 
 
-def list_users(db: Session) -> list[UserProfile]:
-    return db.query(UserProfile).order_by(UserProfile.created_at.desc()).all()
+def list_users(db: Session, include_inactive: bool = False) -> list[UserProfile]:
+    """
+    Returns employee/user records.
+
+    By default only active employees are returned (is_active = true), which
+    is what the "normal" employee list in the frontend uses. Pass
+    include_inactive=True to also include soft-deleted/deactivated accounts
+    (e.g. for a future admin-only "show inactive" view).
+
+    is_active is defined NOT NULL with a server default of true, so NULL
+    shouldn't occur for rows created through this app. As a defensive
+    measure against any pre-existing/legacy row where it's NULL anyway, we
+    treat NULL the same as true here so an employee can never silently
+    disappear from the active list due to an unset flag.
+    """
+    query = db.query(UserProfile)
+    if not include_inactive:
+        query = query.filter(
+            (UserProfile.is_active == True) | (UserProfile.is_active.is_(None))  # noqa: E712
+        )
+    return query.order_by(UserProfile.created_at.desc()).all()
 
 
 def update_user(db: Session, user_id: uuid.UUID, payload: UpdateUserRequest) -> UserProfile:
@@ -144,9 +163,26 @@ def update_user(db: Session, user_id: uuid.UUID, payload: UpdateUserRequest) -> 
 
 
 def delete_user(db: Session, user_id: uuid.UUID) -> None:
+    """
+    Soft-deletes an employee/user.
+
+    Per product requirements, employee records must never be permanently
+    removed from the database. "Deleting" an employee sets is_active=False
+    so the record is excluded from the normal (active-only) employee list
+    while remaining intact in the database.
+    """
     profile = db.query(UserProfile).filter(UserProfile.id == user_id).first()
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
 
-    db.delete(profile)
+    profile.is_active = False
+
+    db.add(
+        DashboardActivityLog(
+            id=uuid.uuid4(),
+            user_id=profile.id,
+            action="deactivate",
+            description="User soft-deleted (is_active set to false)",
+        )
+    )
     db.commit()
