@@ -125,7 +125,7 @@ huggingface_cache/
 # Large AI Models
 # ======================================================
 
-models/
+
 checkpoints/
 weights/
 *.safetensors
