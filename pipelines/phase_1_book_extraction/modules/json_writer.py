@@ -232,6 +232,17 @@ def assemble_chapter_json(
             "class": structure.klass,
             "board": "NCERT",
             "language": [structure.language],
+            # Phase 1 Final Metadata Architecture Refinement: canonical
+            # cover metadata (never overwrites book_title above) + the two
+            # derived identities. Additive/optional, same getattr()
+            # pattern as book_title -- a bare ChapterStructure double that
+            # predates this refinement still assembles a valid document.
+            "book_subtitle": getattr(structure, "book_subtitle", None),
+            "book_part": getattr(structure, "book_part", None),
+            "book_volume": getattr(structure, "book_volume", None),
+            "book_edition": getattr(structure, "book_edition", None),
+            "educational_identity": getattr(structure, "educational_identity", None),
+            "storage_identity": getattr(structure, "storage_identity", None),
         },
         "chapter_metadata": {
             "chapter_number": structure.chapter_number,
@@ -321,12 +332,27 @@ def write_chapter_json(chapter_dict: Dict[str, Any], klass: str, subject: str, b
 
 
 def write_book_manifest(klass: str, subject: str, book_slug: str, book_title: str, toc: Dict[str, Any],
-                         output_root: Optional[str] = None) -> str:
+                         output_root: Optional[str] = None, cover_subtitle: Optional[str] = None,
+                         part: Optional[str] = None, volume: Optional[str] = None,
+                         edition: Optional[str] = None, educational_identity: Optional[str] = None,
+                         storage_identity: Optional[str] = None) -> str:
+    """`cover_subtitle`/`part`/`volume`/`edition`/`educational_identity`/
+    `storage_identity` are additive, optional params (Phase 1 Final
+    Metadata Architecture Refinement) -- callers that omit them (the
+    pre-refinement call shape) still produce a valid manifest with those
+    keys simply set to None, same contract as every other optional field
+    in this module."""
     out_dir = book_output_dir(klass, subject, book_slug, output_root=output_root)
     manifest_path = f"{out_dir}/_book_manifest.json"
     _get_storage().upload_json({
         "schema_version": SCHEMA_VERSION,
         "book_title": book_title,
+        "book_subtitle": cover_subtitle,
+        "book_part": part,
+        "book_volume": volume,
+        "book_edition": edition,
+        "educational_identity": educational_identity,
+        "storage_identity": storage_identity,
         "subject": subject,
         "class": klass,
         "table_of_contents": toc or {},
