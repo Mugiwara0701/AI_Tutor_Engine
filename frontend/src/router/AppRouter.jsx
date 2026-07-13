@@ -7,6 +7,7 @@ import DashboardPage from "../features/dashboard/pages/DashboardPage.jsx";
 import LibraryPage from "../features/library/pages/LibraryPage.jsx";
 import LearningGraphPage from "../features/learning-graph/pages/LearningGraphPage.jsx";
 import PromptStudioPage from "../features/prompt-studio/pages/PromptStudioPage.jsx";
+import IngestionPage from "../features/ingestion/pages/IngestionPage.jsx";
 import ZipManagerPage from "../features/zip-manager/pages/ZipManagerPage.jsx";
 import PipelineMonitorPage from "../features/pipeline-monitor/pages/PipelineMonitorPage.jsx";
 import StorageExplorerPage from "../features/storage-explorer/pages/StorageExplorerPage.jsx";
@@ -38,6 +39,7 @@ export default function AppRouter() {
 
         <Route path="/learning-graph" element={<LearningGraphPage />} />
         <Route path="/prompt-studio" element={<PromptStudioPage />} />
+        <Route path="/ingestion" element={<IngestionPage />} />
         <Route path="/zip-manager" element={<ZipManagerPage />} />
         <Route path="/pipeline-monitor" element={<PipelineMonitorPage />} />
         <Route path="/storage-explorer" element={<StorageExplorerPage />} />

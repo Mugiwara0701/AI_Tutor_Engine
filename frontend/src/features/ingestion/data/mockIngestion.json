@@ -1,0 +1,1588 @@
+{
+  "summary": {
+    "uploaded": {
+      "count": 24,
+      "trend": 20.0
+    },
+    "processing": {
+      "count": 7,
+      "trend": 40.0
+    },
+    "completed": {
+      "count": 16,
+      "trend": 14.0
+    },
+    "failed": {
+      "count": 1,
+      "trend": -75.0
+    }
+  },
+  "filterOptions": {
+    "boardOptions": [
+      "CBSE",
+      "ICSE",
+      "State Board"
+    ],
+    "classOptions": [
+      "Class 9",
+      "Class 10",
+      "Class 11",
+      "Class 12"
+    ],
+    "subjectOptions": [
+      "Physics",
+      "Chemistry",
+      "Mathematics",
+      "Biology"
+    ],
+    "curriculumYearOptions": [
+      "2026",
+      "2025",
+      "2024"
+    ],
+    "statusOptions": [
+      "In Progress",
+      "Completed",
+      "Failed",
+      "Queued"
+    ]
+  },
+  "uploads": [
+    {
+      "id": "ing_001",
+      "book": "Physics Part 1",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Physics",
+      "curriculum": "2025",
+      "version": "v1",
+      "uploadedBy": {
+        "name": "Mohit Mali"
+      },
+      "uploadedOn": "2025-05-18T08:00:00",
+      "uploadedOnDisplay": "May 18, 2025, 08:00 AM",
+      "currentStage": "Metadata Validated",
+      "status": "Queued",
+      "progress": 0,
+      "fileName": "physics_part_1_v1.zip",
+      "fileSize": 367211315,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Physics/Physics_Part_1_v1/physics_part_1_v1.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_002",
+      "book": "Physics Part 2",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Physics",
+      "curriculum": "2026",
+      "version": "v2",
+      "uploadedBy": {
+        "name": "Adarsh Saini"
+      },
+      "uploadedOn": "2025-05-18T09:07:00",
+      "uploadedOnDisplay": "May 18, 2025, 09:07 AM",
+      "currentStage": "Extraction",
+      "status": "In Progress",
+      "progress": 25,
+      "fileName": "physics_part_2_v2.zip",
+      "fileSize": 135266304,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Physics/Physics_Part_2_v2/physics_part_2_v2.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "In Progress",
+          "progress": 25
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_003",
+      "book": "Chemistry Part 1",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Chemistry",
+      "curriculum": "2026",
+      "version": "v3",
+      "uploadedBy": {
+        "name": "Shikha Dole"
+      },
+      "uploadedOn": "2025-05-17T10:14:00",
+      "uploadedOnDisplay": "May 17, 2025, 10:14 AM",
+      "currentStage": "Extraction",
+      "status": "In Progress",
+      "progress": 45,
+      "fileName": "chemistry_part_1_v3.zip",
+      "fileSize": 229638144,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Chemistry/Chemistry_Part_1_v3/chemistry_part_1_v3.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "In Progress",
+          "progress": 45
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_004",
+      "book": "Chemistry Part 2",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Chemistry",
+      "curriculum": "2025",
+      "version": "v4",
+      "uploadedBy": {
+        "name": "Mohit Mali"
+      },
+      "uploadedOn": "2025-05-17T11:21:00",
+      "uploadedOnDisplay": "May 17, 2025, 11:21 AM",
+      "currentStage": "Phase 1 Processing",
+      "status": "In Progress",
+      "progress": 60,
+      "fileName": "chemistry_part_2_v4.zip",
+      "fileSize": 210134630,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Chemistry/Chemistry_Part_2_v4/chemistry_part_2_v4.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "In Progress",
+          "progress": 60
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_005",
+      "book": "Mathematics Part 1",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Mathematics",
+      "curriculum": "2026",
+      "version": "v1",
+      "uploadedBy": {
+        "name": "Adarsh Saini"
+      },
+      "uploadedOn": "2025-05-16T12:28:00",
+      "uploadedOnDisplay": "May 16, 2025, 12:28 PM",
+      "currentStage": "Phase 2 Processing",
+      "status": "In Progress",
+      "progress": 72,
+      "fileName": "mathematics_part_1_v1.zip",
+      "fileSize": 403806617,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Mathematics/Mathematics_Part_1_v1/mathematics_part_1_v1.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "In Progress",
+          "progress": 72
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_006",
+      "book": "Mathematics Part 2",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Mathematics",
+      "curriculum": "2026",
+      "version": "v2",
+      "uploadedBy": {
+        "name": "Shikha Dole"
+      },
+      "uploadedOn": "2025-05-16T13:35:00",
+      "uploadedOnDisplay": "May 16, 2025, 01:35 PM",
+      "currentStage": "Master JSON Generation",
+      "status": "In Progress",
+      "progress": 90,
+      "fileName": "mathematics_part_2_v2.zip",
+      "fileSize": 381262233,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Mathematics/Mathematics_Part_2_v2/mathematics_part_2_v2.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "In Progress",
+          "progress": 90
+        }
+      ]
+    },
+    {
+      "id": "ing_007",
+      "book": "Biology",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Biology",
+      "curriculum": "2025",
+      "version": "v3",
+      "uploadedBy": {
+        "name": "Mohit Mali"
+      },
+      "uploadedOn": "2025-05-15T14:42:00",
+      "uploadedOnDisplay": "May 15, 2025, 02:42 PM",
+      "currentStage": "Master JSON",
+      "status": "Completed",
+      "progress": 100,
+      "fileName": "biology_v3.zip",
+      "fileSize": 462631731,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Biology/Biology_v3/biology_v3.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Completed",
+          "progress": 100
+        }
+      ]
+    },
+    {
+      "id": "ing_008",
+      "book": "Physics Part 1",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Physics",
+      "curriculum": "2026",
+      "version": "v4",
+      "uploadedBy": {
+        "name": "Adarsh Saini"
+      },
+      "uploadedOn": "2025-05-15T15:49:00",
+      "uploadedOnDisplay": "May 15, 2025, 03:49 PM",
+      "currentStage": "Extraction",
+      "status": "Failed",
+      "progress": 0,
+      "fileName": "physics_part_1_v4.zip",
+      "fileSize": 158649548,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Physics/Physics_Part_1_v4/physics_part_1_v4.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Failed",
+          "progress": 0
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_009",
+      "book": "Physics Part 2",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Physics",
+      "curriculum": "2026",
+      "version": "v1",
+      "uploadedBy": {
+        "name": "Shikha Dole"
+      },
+      "uploadedOn": "2025-05-14T16:56:00",
+      "uploadedOnDisplay": "May 14, 2025, 04:56 PM",
+      "currentStage": "Metadata Validated",
+      "status": "Queued",
+      "progress": 0,
+      "fileName": "physics_part_2_v1.zip",
+      "fileSize": 285107814,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Physics/Physics_Part_2_v1/physics_part_2_v1.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_010",
+      "book": "Chemistry Part 1",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Chemistry",
+      "curriculum": "2025",
+      "version": "v2",
+      "uploadedBy": {
+        "name": "Mohit Mali"
+      },
+      "uploadedOn": "2025-05-14T17:03:00",
+      "uploadedOnDisplay": "May 14, 2025, 05:03 PM",
+      "currentStage": "Extraction",
+      "status": "In Progress",
+      "progress": 25,
+      "fileName": "chemistry_part_1_v2.zip",
+      "fileSize": 137048883,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Chemistry/Chemistry_Part_1_v2/chemistry_part_1_v2.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "In Progress",
+          "progress": 25
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_011",
+      "book": "Chemistry Part 2",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Chemistry",
+      "curriculum": "2026",
+      "version": "v3",
+      "uploadedBy": {
+        "name": "Adarsh Saini"
+      },
+      "uploadedOn": "2025-05-13T08:10:00",
+      "uploadedOnDisplay": "May 13, 2025, 08:10 AM",
+      "currentStage": "Extraction",
+      "status": "In Progress",
+      "progress": 45,
+      "fileName": "chemistry_part_2_v3.zip",
+      "fileSize": 208352051,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Chemistry/Chemistry_Part_2_v3/chemistry_part_2_v3.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "In Progress",
+          "progress": 45
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_012",
+      "book": "Mathematics Part 1",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Mathematics",
+      "curriculum": "2026",
+      "version": "v4",
+      "uploadedBy": {
+        "name": "Shikha Dole"
+      },
+      "uploadedOn": "2025-05-13T09:17:00",
+      "uploadedOnDisplay": "May 13, 2025, 09:17 AM",
+      "currentStage": "Phase 1 Processing",
+      "status": "In Progress",
+      "progress": 60,
+      "fileName": "mathematics_part_1_v4.zip",
+      "fileSize": 316565094,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Mathematics/Mathematics_Part_1_v4/mathematics_part_1_v4.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "In Progress",
+          "progress": 60
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_013",
+      "book": "Mathematics Part 2",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Mathematics",
+      "curriculum": "2025",
+      "version": "v1",
+      "uploadedBy": {
+        "name": "Mohit Mali"
+      },
+      "uploadedOn": "2025-05-12T10:24:00",
+      "uploadedOnDisplay": "May 12, 2025, 10:24 AM",
+      "currentStage": "Phase 2 Processing",
+      "status": "In Progress",
+      "progress": 72,
+      "fileName": "mathematics_part_2_v1.zip",
+      "fileSize": 135895449,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Mathematics/Mathematics_Part_2_v1/mathematics_part_2_v1.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "In Progress",
+          "progress": 72
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_014",
+      "book": "Biology",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Biology",
+      "curriculum": "2026",
+      "version": "v2",
+      "uploadedBy": {
+        "name": "Adarsh Saini"
+      },
+      "uploadedOn": "2025-05-12T11:31:00",
+      "uploadedOnDisplay": "May 12, 2025, 11:31 AM",
+      "currentStage": "Master JSON Generation",
+      "status": "In Progress",
+      "progress": 90,
+      "fileName": "biology_v2.zip",
+      "fileSize": 200907161,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Biology/Biology_v2/biology_v2.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "In Progress",
+          "progress": 90
+        }
+      ]
+    },
+    {
+      "id": "ing_015",
+      "book": "Physics Part 1",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Physics",
+      "curriculum": "2026",
+      "version": "v3",
+      "uploadedBy": {
+        "name": "Shikha Dole"
+      },
+      "uploadedOn": "2025-05-11T12:38:00",
+      "uploadedOnDisplay": "May 11, 2025, 12:38 PM",
+      "currentStage": "Master JSON",
+      "status": "Completed",
+      "progress": 100,
+      "fileName": "physics_part_1_v3.zip",
+      "fileSize": 371195904,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Physics/Physics_Part_1_v3/physics_part_1_v3.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Completed",
+          "progress": 100
+        }
+      ]
+    },
+    {
+      "id": "ing_016",
+      "book": "Physics Part 2",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Physics",
+      "curriculum": "2025",
+      "version": "v4",
+      "uploadedBy": {
+        "name": "Mohit Mali"
+      },
+      "uploadedOn": "2025-05-11T13:45:00",
+      "uploadedOnDisplay": "May 11, 2025, 01:45 PM",
+      "currentStage": "Extraction",
+      "status": "Failed",
+      "progress": 0,
+      "fileName": "physics_part_2_v4.zip",
+      "fileSize": 331559731,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Physics/Physics_Part_2_v4/physics_part_2_v4.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Failed",
+          "progress": 0
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_017",
+      "book": "Chemistry Part 1",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Chemistry",
+      "curriculum": "2026",
+      "version": "v1",
+      "uploadedBy": {
+        "name": "Adarsh Saini"
+      },
+      "uploadedOn": "2025-05-10T14:52:00",
+      "uploadedOnDisplay": "May 10, 2025, 02:52 PM",
+      "currentStage": "Metadata Validated",
+      "status": "Queued",
+      "progress": 0,
+      "fileName": "chemistry_part_1_v1.zip",
+      "fileSize": 209086054,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Chemistry/Chemistry_Part_1_v1/chemistry_part_1_v1.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_018",
+      "book": "Chemistry Part 2",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Chemistry",
+      "curriculum": "2026",
+      "version": "v2",
+      "uploadedBy": {
+        "name": "Shikha Dole"
+      },
+      "uploadedOn": "2025-05-10T15:59:00",
+      "uploadedOnDisplay": "May 10, 2025, 03:59 PM",
+      "currentStage": "Extraction",
+      "status": "In Progress",
+      "progress": 25,
+      "fileName": "chemistry_part_2_v2.zip",
+      "fileSize": 348232089,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Chemistry/Chemistry_Part_2_v2/chemistry_part_2_v2.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "In Progress",
+          "progress": 25
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_019",
+      "book": "Mathematics Part 1",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Mathematics",
+      "curriculum": "2025",
+      "version": "v3",
+      "uploadedBy": {
+        "name": "Mohit Mali"
+      },
+      "uploadedOn": "2025-05-09T16:06:00",
+      "uploadedOnDisplay": "May 9, 2025, 04:06 PM",
+      "currentStage": "Extraction",
+      "status": "In Progress",
+      "progress": 45,
+      "fileName": "mathematics_part_1_v3.zip",
+      "fileSize": 431384166,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Mathematics/Mathematics_Part_1_v3/mathematics_part_1_v3.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "In Progress",
+          "progress": 45
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_020",
+      "book": "Mathematics Part 2",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Mathematics",
+      "curriculum": "2026",
+      "version": "v4",
+      "uploadedBy": {
+        "name": "Adarsh Saini"
+      },
+      "uploadedOn": "2025-05-09T17:13:00",
+      "uploadedOnDisplay": "May 9, 2025, 05:13 PM",
+      "currentStage": "Phase 1 Processing",
+      "status": "In Progress",
+      "progress": 60,
+      "fileName": "mathematics_part_2_v4.zip",
+      "fileSize": 128240844,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Mathematics/Mathematics_Part_2_v4/mathematics_part_2_v4.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "In Progress",
+          "progress": 60
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_021",
+      "book": "Biology",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Biology",
+      "curriculum": "2026",
+      "version": "v1",
+      "uploadedBy": {
+        "name": "Shikha Dole"
+      },
+      "uploadedOn": "2025-05-08T08:20:00",
+      "uploadedOnDisplay": "May 8, 2025, 08:20 AM",
+      "currentStage": "Phase 2 Processing",
+      "status": "In Progress",
+      "progress": 72,
+      "fileName": "biology_v1.zip",
+      "fileSize": 430021017,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Biology/Biology_v1/biology_v1.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "In Progress",
+          "progress": 72
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    },
+    {
+      "id": "ing_022",
+      "book": "Physics Part 1",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Physics",
+      "curriculum": "2025",
+      "version": "v2",
+      "uploadedBy": {
+        "name": "Mohit Mali"
+      },
+      "uploadedOn": "2025-05-08T09:27:00",
+      "uploadedOnDisplay": "May 8, 2025, 09:27 AM",
+      "currentStage": "Master JSON Generation",
+      "status": "In Progress",
+      "progress": 90,
+      "fileName": "physics_part_1_v2.zip",
+      "fileSize": 389336268,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Physics/Physics_Part_1_v2/physics_part_1_v2.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "In Progress",
+          "progress": 90
+        }
+      ]
+    },
+    {
+      "id": "ing_023",
+      "book": "Physics Part 2",
+      "board": "CBSE",
+      "class": "Class 11",
+      "subject": "Physics",
+      "curriculum": "2026",
+      "version": "v3",
+      "uploadedBy": {
+        "name": "Adarsh Saini"
+      },
+      "uploadedOn": "2025-05-07T10:34:00",
+      "uploadedOnDisplay": "May 7, 2025, 10:34 AM",
+      "currentStage": "Master JSON",
+      "status": "Completed",
+      "progress": 100,
+      "fileName": "physics_part_2_v3.zip",
+      "fileSize": 254279680,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_11/Physics/Physics_Part_2_v3/physics_part_2_v3.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Completed",
+          "progress": 100
+        }
+      ]
+    },
+    {
+      "id": "ing_024",
+      "book": "Chemistry Part 1",
+      "board": "CBSE",
+      "class": "Class 12",
+      "subject": "Chemistry",
+      "curriculum": "2026",
+      "version": "v4",
+      "uploadedBy": {
+        "name": "Shikha Dole"
+      },
+      "uploadedOn": "2025-05-07T11:41:00",
+      "uploadedOnDisplay": "May 7, 2025, 11:41 AM",
+      "currentStage": "Extraction",
+      "status": "Failed",
+      "progress": 0,
+      "fileName": "chemistry_part_1_v4.zip",
+      "fileSize": 184549376,
+      "storagePath": "../BOOK_ZIP/CBSE/Class_12/Chemistry/Chemistry_Part_1_v4/chemistry_part_1_v4.zip",
+      "pipeline": [
+        {
+          "id": "s1",
+          "name": "File Uploaded",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s2",
+          "name": "Metadata Validated",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s3",
+          "name": "Uploaded to Storage",
+          "status": "Completed",
+          "progress": 100
+        },
+        {
+          "id": "s4",
+          "name": "Extraction",
+          "status": "Failed",
+          "progress": 0
+        },
+        {
+          "id": "s5",
+          "name": "Phase 1 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s6",
+          "name": "Phase 2 Processing",
+          "status": "Pending",
+          "progress": 0
+        },
+        {
+          "id": "s7",
+          "name": "Master JSON Generation",
+          "status": "Pending",
+          "progress": 0
+        }
+      ]
+    }
+  ]
+}
