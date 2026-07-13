@@ -77,7 +77,7 @@ export default function DataTable({
   }
 
   return (
-    <div className="bg-white border border-slate-100 rounded-card overflow-hidden">
+    <div className="bg-white border border-slate-100 rounded-card">
       <div className="overflow-x-auto">
         <table className="w-full">
           <TableHeader

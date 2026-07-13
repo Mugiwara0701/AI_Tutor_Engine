@@ -53,7 +53,11 @@ export function useEmployeeData() {
 
   const deleteEmployee = async (id) => {
     await deleteUserRecord(id);
-    setEmployees((prev) => prev.filter((emp) => emp.id !== id));
+    // Soft-delete: the employee stays in the list, just flipped to
+    // "Inactive" (mirrors what the backend actually did — is_active=false).
+    setEmployees((prev) =>
+      prev.map((emp) => (emp.id === id ? { ...emp, status: "Inactive" } : emp)),
+    );
   };
 
   const toggleStatus = async (id) => {

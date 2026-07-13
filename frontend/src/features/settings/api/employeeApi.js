@@ -20,10 +20,14 @@ function mapUser(user) {
 }
 
 /**
- * Fetches active employees/users (backend defaults to is_active = true).
+ * Fetches all employees/users, including inactive (soft-deleted /
+ * deactivated) ones, so the Settings table can still show them with an
+ * "Inactive" status badge instead of hiding them entirely.
  */
 export async function fetchUsers() {
-  const data = await apiRequest("/auth/users", { auth: true });
+  const data = await apiRequest("/auth/users?include_inactive=true", {
+    auth: true,
+  });
   return (data ?? []).map(mapUser);
 }
 

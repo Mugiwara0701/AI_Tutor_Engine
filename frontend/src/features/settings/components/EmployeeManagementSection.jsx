@@ -80,7 +80,7 @@ export default function EmployeeManagementSection() {
     deleteEmployee(id);
     setAlert({
       type: "success",
-      message: `${employee?.name ?? "Employee"} was removed.`,
+      message: `${employee?.name ?? "Employee"} was marked inactive.`,
     });
   };
 
