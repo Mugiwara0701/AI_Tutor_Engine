@@ -618,6 +618,90 @@ def chapter_number_from_filename(filename: str) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
+# Phase 1 Final Metadata Architecture Refinement: the generic "Part <N>" /
+# "Volume <N>" / "Book <N>" phrasing NCERT prints on the cover of any
+# subject that ships in more than one part (Mathematics Part I/II, Themes
+# in Indian History Part I/II/III, ...). Deliberately generic -- matches
+# the *pattern*, never a specific subject or title -- so it works across
+# the whole corpus without hardcoding.
+_PART_VOLUME_RE = re.compile(r"^\s*(Part|Volume|Book)\s+([IVXLCDM]+|\d{1,2})\s*$", re.I)
+_EDITION_RE = re.compile(r"\b(\d{4})\s+Edition\b|\bEdition\s*[:\-]?\s*(\d{4})\b", re.I)
+
+
+def parse_cover_metadata(lines: List[Line], body_size: float, repeated: set, book_title: str) -> Dict[str, Optional[str]]:
+    """Extracts the secondary, DISTINGUISHING cover-page metadata that can
+    sit alongside the main title on the title page -- subtitle, Part/
+    Volume/Book number, edition -- the metadata NCERT itself uses to tell
+    apart multiple books that share the same main cover title (e.g. two
+    "Accountancy" books: one "Partnership Accounts", one "Company
+    Accounts and Analysis of Financial Statements").
+
+    Generic by construction: nothing here is keyed off a specific subject,
+    title, or NCERT book name -- only font-size/position heuristics
+    (mirrors parse_book_title_and_class's own approach) and the generic
+    "Part/Volume/Book <numeral>" phrasing. Never touches `book_title`
+    itself; every field returned is independently preserved, never
+    concatenated together.
+
+    Returns {"subtitle": ..., "part": ..., "volume": ..., "edition": ...},
+    each a string or None. A missing prelims/title page (or a book with no
+    such distinguishing metadata printed at all -- the common case)
+    returns all four as None, which is exactly what callers should expect
+    for the vast majority of single-part NCERT books.
+    """
+    page0 = [l for l in lines if l.page == 0 and l.text not in repeated]
+
+    part = volume = None
+    for l in page0:
+        m = _PART_VOLUME_RE.match(l.text.strip())
+        if m:
+            kind, value = m.group(1).capitalize(), m.group(2).upper()
+            if kind == "Volume":
+                volume = f"Volume {value}"
+            else:
+                # "Part" and "Book" (as in "Book 1 of 2") both distinguish
+                # a book from its siblings the same way; keep them in
+                # separate fields only when both happen to be present.
+                part = f"{kind} {value}"
+
+    edition = None
+    for l in page0:
+        m = _EDITION_RE.search(l.text)
+        if m:
+            year = m.group(1) or m.group(2)
+            edition = f"{year} Edition"
+            break
+
+    # Subtitle: text on the title page that visually sits in the same
+    # "big font, not body text" tier as the title itself, is NOT the
+    # title line, and isn't already accounted for as Part/Volume/edition
+    # or the "Textbook ... for Class ..." / "Class <N>" phrasing
+    # parse_book_title_and_class already treats as class/subject metadata.
+    title_lower = book_title.strip().lower()
+    title_size = next((l.max_size for l in page0 if l.text.strip().lower() == title_lower), None)
+    subtitle_parts = []
+    if title_size is not None:
+        for l in sorted(page0, key=lambda x: x.y):
+            text = l.text.strip()
+            if not text or text.lower() == title_lower:
+                continue
+            if _PART_VOLUME_RE.match(text) or _EDITION_RE.search(text):
+                continue
+            if re.search(r"class\s+([IVXLCDM]+|\d{1,2})\b", text, re.I):
+                continue
+            if re.search(r"textbook\s+in\s+.+\s+for\s+class", text, re.I):
+                continue
+            # Same "clearly bigger than body text" band parse_book_title_and_class
+            # uses for the title itself, just capped below the title's own
+            # size so the subtitle can never outrank (or duplicate) it.
+            if body_size * 1.15 <= l.max_size < title_size:
+                subtitle_parts.append(text)
+
+    subtitle = " ".join(subtitle_parts).strip() or None
+
+    return {"subtitle": subtitle, "part": part, "volume": volume, "edition": edition}
+
+
 def parse_book_title_and_class(lines: List[Line], body_size: float, repeated: set):
     page0 = [l for l in lines if l.page == 0 and l.text not in repeated]
     big = [l for l in page0 if l.max_size >= body_size * 1.5]
@@ -853,30 +937,83 @@ class BookContext:
     # the regression where book_title_override overwrote `book_title`
     # directly, silently replacing official titles like "Introductory to
     # Macroeconomics" with whatever the input folder happened to be named
-    # (e.g. "Macroeconomics"). `book_slug` (wherever it's computed) should
-    # prefer this field over `book_title` when set; `book_title` itself
-    # is never touched by the override unless no official title could be
-    # parsed at all (still "untitled-book").
+    # (e.g. "Macroeconomics"). `book_title` itself is never touched by the
+    # override unless no official title could be parsed at all (still
+    # "untitled-book").
+    #
+    # Phase 1 Final Metadata Architecture Refinement: this field is kept
+    # ONLY for backward compatibility with books that already live under
+    # a folder-name-derived OneDrive path (see slug_source below) -- the
+    # identity model no longer *depends* on an operator having named the
+    # input folder distinctly. Long-term identity now comes from the
+    # canonical cover metadata fields below.
     book_folder_name: Optional[str] = None
+
+    # --- Canonical cover metadata (Phase 1 Final Metadata Architecture
+    # Refinement, STEP 2) -- exactly as printed by NCERT, extracted by
+    # parse_cover_metadata() off the SAME prelims/TOC PDF book_title comes
+    # from (never inferred from folder names). Each stays independently
+    # preserved -- never concatenated into book_title, never abbreviated,
+    # never simplified -- and is None whenever NCERT prints no such
+    # distinguishing metadata for this book (the common, single-part case).
+    cover_subtitle: Optional[str] = None
+    part: Optional[str] = None
+    volume: Optional[str] = None
+    edition: Optional[str] = None
+
+    @property
+    def educational_identity(self) -> str:
+        """The identity a student/teacher actually recognizes the book
+        by: whichever distinguishing cover metadata NCERT printed
+        (subtitle, else Part, else Volume), or the book's own official
+        title when NCERT printed no distinguishing metadata at all.
+        Purely a function of canonical fields already on this instance --
+        never hardcodes a subject or title."""
+        return self.cover_subtitle or self.part or self.volume or self.book_title
+
+    @property
+    def derived_storage_identity(self) -> str:
+        """Deterministic, human-readable storage identity built ONLY from
+        canonical cover metadata (STEP 2/3): "<book_title>" whenever
+        NCERT prints no distinguishing subtitle/Part/Volume for this book
+        (the common case, and identical to the pre-refinement behavior),
+        else "<book_title> - <distinguishing metadata>". Each field stays
+        independently preserved elsewhere -- this is a STORAGE-ONLY
+        composite and must never become the displayed book_title."""
+        distinguishing = self.cover_subtitle or self.part or self.volume
+        return f"{self.book_title} - {distinguishing}" if distinguishing else self.book_title
 
     @property
     def slug_source(self) -> str:
         """Authoritative source for this book's output-directory identity
-        (book_slug). Prefers the discovered folder name (book_folder_name)
-        -- the never-inferred-from-PDFs identity book_orchestrator.py's
-        docstring requires -- and falls back to the parsed official title
-        only for the legacy loose-PDF case where there is no folder name
-        at all."""
-        return self.book_folder_name or self.book_title
+        (book_slug). Precedence:
+
+          1. book_folder_name -- an EXPLICIT operator override, when one
+             was supplied (book_orchestrator.py's discovered subfolder
+             name). Kept for backward compatibility only: any book
+             already living under a folder-name-derived OneDrive path
+             keeps producing that exact same path.
+          2. derived_storage_identity -- canonical-cover-metadata-derived
+             and deterministic; unique whenever NCERT prints
+             distinguishing metadata (subtitle/Part/Volume), and
+             identical to the official title otherwise. This is now the
+             long-term identity source -- no operator folder name is
+             required to reach it.
+        """
+        return self.book_folder_name or self.derived_storage_identity
 
 
 def book_slug_source(book_ctx: Any) -> str:
     """getattr-safe equivalent of BookContext.slug_source, for callers
     that may receive a duck-typed book_ctx double (e.g. test doubles that
     only set book_title/subject/klass/toc) instead of a real BookContext
-    instance -- avoids an AttributeError on the new book_folder_name
-    field for any such caller that predates it."""
-    return getattr(book_ctx, "book_folder_name", None) or book_ctx.book_title
+    instance -- avoids an AttributeError on the newer book_folder_name /
+    canonical-metadata fields for any such caller that predates them."""
+    folder_name = getattr(book_ctx, "book_folder_name", None)
+    if folder_name:
+        return folder_name
+    derived = getattr(book_ctx, "derived_storage_identity", None)
+    return derived or book_ctx.book_title
 
 
 def load_book_context(prelims_path: Optional[str]) -> BookContext:
@@ -888,6 +1025,7 @@ def load_book_context(prelims_path: Optional[str]) -> BookContext:
     lines = merge_wrapped_lines(lines, body_size)
     repeated = find_repeated_lines(lines)
     book_title, subject, klass = parse_book_title_and_class(lines, body_size, repeated)
+    cover_meta = parse_cover_metadata(lines, body_size, repeated, book_title)
     toc_lines = find_toc_lines(lines, repeated)
     toc = parse_toc(toc_lines) if toc_lines else None
 
@@ -910,7 +1048,9 @@ def load_book_context(prelims_path: Optional[str]) -> BookContext:
         sample_text=first_page_text, pdf_metadata=pdf_meta, override=DEFAULT_LANGUAGE,
         font_names=font_names,
     )
-    return BookContext(book_title=book_title, subject=subject, klass=klass, toc=toc, language=language)
+    return BookContext(book_title=book_title, subject=subject, klass=klass, toc=toc, language=language,
+                        cover_subtitle=cover_meta["subtitle"], part=cover_meta["part"],
+                        volume=cover_meta["volume"], edition=cover_meta["edition"])
 
 
 def find_prelims_pdf(all_paths: List[str]) -> Optional[str]:

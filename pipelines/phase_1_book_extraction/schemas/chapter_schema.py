@@ -137,6 +137,17 @@ class DocumentInfo(Loose):
     klass: str = Field(default="unknown", alias="class")
     board: str = "NCERT"
     language: List[str] = Field(default_factory=lambda: ["en"])
+    # Phase 1 Final Metadata Architecture Refinement: canonical cover
+    # metadata (never overwrites book_title above) + the two derived
+    # identities (educational_identity, storage_identity). All optional
+    # and None by default -- a book with no distinguishing cover metadata
+    # (the common, single-part case) simply leaves these unset.
+    book_subtitle: Optional[str] = None
+    book_part: Optional[str] = None
+    book_volume: Optional[str] = None
+    book_edition: Optional[str] = None
+    educational_identity: Optional[str] = None
+    storage_identity: Optional[str] = None
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 

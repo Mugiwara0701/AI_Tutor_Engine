@@ -80,7 +80,7 @@ from modules import canonical
 from modules.pdf_parser import make_id, slugify, auto_detect_subject, auto_detect_class
 from compiler.registries import create_registry_manager, populate_registries
 from compiler.enrichment import enrich_registries
-from compiler.normalization import normalize_registries
+from compiler.normalization import normalize_registries, canonical_lookup_key
 from compiler.references import resolve_references
 from compiler.relationships import resolve_relationships
 from compiler.validation import validate_compiler_state
@@ -221,7 +221,18 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
 
     structure = pdf_parser.parse_chapter_pdf(pdf_path, book_ctx, chapter_order_fallback)
     structure.book_title = book_ctx.book_title  # official title, attached for json_writer
-    book_slug = slugify(pdf_parser.book_slug_source(book_ctx))  # folder-name identity, NOT the official title
+    # Phase 1 Final Metadata Architecture Refinement: canonical distinguishing
+    # cover metadata + the two derived identities, attached the same way
+    # book_title always has been -- additive, optional fields json_writer
+    # reads via getattr() so callers that build a bare ChapterStructure
+    # double (pre-refinement tests) are unaffected.
+    structure.book_subtitle = book_ctx.cover_subtitle
+    structure.book_part = book_ctx.part
+    structure.book_volume = book_ctx.volume
+    structure.book_edition = book_ctx.edition
+    structure.educational_identity = book_ctx.educational_identity
+    structure.storage_identity = book_ctx.derived_storage_identity
+    book_slug = slugify(pdf_parser.book_slug_source(book_ctx))  # output-directory identity, NOT necessarily the official title
     # A3 FIX (identity consistency): canonical_namespace / chapter_reference
     # are deliberately NOT computed here anymore. They must be derived from
     # the FINAL chapter title -- i.e. only after script-mismatch recovery
@@ -259,24 +270,37 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                      structure.chapter_title)
         return None
 
+    _log_fields = [
+        ("Book Progress", f"Book {book_index if book_index is not None else '?'} / "
+                           f"{total_books if total_books is not None else '?'}"),
+        ("Subject", book_ctx.subject),
+        ("Book", book_ctx.educational_identity),
+        ("Official Cover Title", book_ctx.book_title),
+    ]
+    # Only the distinguishing cover metadata NCERT actually printed for
+    # THIS book ever shows up here -- the common single-part book (no
+    # subtitle/Part/Volume) logs no such line at all, per STEP 5's
+    # "don't display an empty subtitle line" requirement.
+    if book_ctx.cover_subtitle:
+        _log_fields.append(("Official Cover Subtitle", book_ctx.cover_subtitle))
+    if book_ctx.part:
+        _log_fields.append(("Part", book_ctx.part))
+    if book_ctx.volume:
+        _log_fields.append(("Volume", book_ctx.volume))
+    _log_fields.extend([
+        ("Storage Identity", book_ctx.derived_storage_identity),
+        ("Current Processing Position", f"{processing_position}/{total_chapters_in_book}"
+                                         if processing_position is not None else "?"),
+        ("Actual Chapter Number", structure.chapter_number),
+        ("Official Chapter Title", structure.chapter_title),
+        ("Source PDF", os.path.basename(pdf_path)),
+        ("Page Count", structure.num_pages),
+        ("Detected Heading Count", len(structure.topics)),
+    ])
     logger.info(
-        "\n--------------------------------------------------\n"
-        "Book Progress: Book %s / %s\n"
-        "Subject: %s\n"
-        "Official Book Title: %s\n"
-        "Current Processing Position: %s\n"
-        "Actual Chapter Number: %s\n"
-        "Official Chapter Title: %s\n"
-        "Source PDF: %s\n"
-        "Page Count: %d\n"
-        "Detected Heading Count: %d\n"
+        "\n--------------------------------------------------\n%s\n"
         "--------------------------------------------------",
-        book_index if book_index is not None else "?",
-        total_books if total_books is not None else "?",
-        book_ctx.subject, book_ctx.book_title,
-        f"{processing_position}/{total_chapters_in_book}" if processing_position is not None
-        else "?", structure.chapter_number, structure.chapter_title,
-        os.path.basename(pdf_path), structure.num_pages, len(structure.topics),
+        "\n".join(f"{label}: {value}" for label, value in _log_fields),
     )
 
     # ---- OCR (per page, text-layer first, tesseract fallback) ----
@@ -349,7 +373,16 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         d.update(canonical.canonical_fields(
             object_id=make_id(structure.chapter_title, "definition", d["term"], str(d.get("page")), str(idx)),
             object_type="definition", namespace=canonical_namespace,
-            urn_parts=["definition", d["term"], str(d.get("page"))],
+            # STEP 4 AUDIT FIX (same bug class as glossary): object_id
+            # above includes `idx` so it is always unique, but urn_parts
+            # previously omitted it -- two definition-term occurrences for
+            # the exact same term text on the exact same page (both
+            # legitimate, distinct DefinitionRegistry records per
+            # test_same_term_different_pages_both_insert_without_conflict)
+            # would get different ids but the identical urn, i.e. the same
+            # latent DuplicateUrnError this task's Phase 1 fixed for
+            # glossary. `idx` added so id/urn always agree.
+            urn_parts=["definition", d["term"], str(d.get("page")), str(idx)],
             subject=structure.subject, chapter_reference=chapter_reference,
             topic_ids=[d["topic"]] if d.get("topic") else [],
             source_page=d.get("page"), bounding_box=d.get("bbox"),
@@ -407,13 +440,53 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                 }
             elif t.id not in existing["topics"]:
                 existing["topics"].append(t.id)
+        # ROOT CAUSE: `object_id` below is (and always was) generated from
+        # (chapter_title, "glossary", term_s, t.id) -- unique per (term,
+        # topic) occurrence, matching GlossaryRegistry's own documented
+        # contract ("one record per (term, topic) glossary occurrence",
+        # compiler/registries.py) and the frozen
+        # test_same_term_different_topics_both_insert unit test, which
+        # both expect two DIFFERENT topics mentioning the same term to
+        # produce two DIFFERENT, both-valid glossary records. But the urn
+        # was built from `urn_parts=["glossary", term_s]` -- term only,
+        # never `t.id` -- so it did NOT carry the same distinguishing
+        # information as the id. Two legitimate (term, topic) occurrences
+        # for the same term therefore got two different ids but the exact
+        # same urn, which is precisely "duplicate urn ... already resolves
+        # to a different id" from the runtime log: the registry correctly
+        # rejected an object whose own id/urn generation disagreed with
+        # itself about what makes it unique.
+        #
+        # Fix: urn_parts now includes `t.id`, exactly like object_id
+        # already does, so id and urn are always derived from the same
+        # inputs -- one glossary urn per (term, topic) pair, never per
+        # term alone. This is the minimum change that makes id and urn
+        # agree; it does not alter what GlossaryRegistry accepts.
+        #
+        # Separately, a VLM call can return the same term string more than
+        # once for one topic (e.g. the term appears in more than one
+        # educational block within that topic) -- that IS a true, same-
+        # topic duplicate, not two legitimate occurrences, so it is
+        # deduplicated here using the compiler's own canonical identity
+        # primitive, `canonical_lookup_key()` (compiler/normalization.py:
+        # NFKC normalize, quote/dash fold, invisible-char strip, whitespace
+        # collapse, casefold, edge-punctuation strip) -- reused rather than
+        # reimplemented, so "same term" here always means what the rest of
+        # the compiler already means by it.
+        seen_glossary_keys_this_topic: set = set()
         for term in sem.get("glossary_terms", []) or []:
-            term_s = str(term)
+            term_s = str(term).strip()
+            if not term_s:
+                continue
+            term_key = canonical_lookup_key(term_s) or term_s.casefold()
+            if term_key in seen_glossary_keys_this_topic:
+                continue
+            seen_glossary_keys_this_topic.add(term_key)
             glossary.append({
                 **canonical.canonical_fields(
                     object_id=make_id(structure.chapter_title, "glossary", term_s, t.id),
                     object_type="glossary_entry", namespace=canonical_namespace,
-                    urn_parts=["glossary", term_s],
+                    urn_parts=["glossary", term_s, t.id],
                     subject=structure.subject, chapter_reference=chapter_reference,
                     topic_ids=[t.id], source_page=t.page_start, source_heading=t.title,
                     extraction_stage="semantic_processor.process_topic_semantics",
@@ -694,23 +767,38 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     notes = _finalize_blocks(notes_raw)
     examples = _finalize_blocks(examples_raw)
 
-    for a in activities:
+    # STEP 4 AUDIT FIX (same bug class as glossary/definitions above): each
+    # of these five dicts already carries an `id` built by
+    # content_blocks.py from (chapter_title, type, ..., a per-line `idx`
+    # unique across the whole chapter -- see e.g. detect_activities'
+    # `make_id(chapter_title, "activity", label, str(idx))`), but the urn
+    # built below only used (type, sub-type, page) -- with no positional
+    # disambiguator. Two Activity blocks of the same activity_type on the
+    # same page (equally, two Box/Warning/Note/Example blocks sharing
+    # type+page) would get different, correctly-unique ids but collide on
+    # urn -- the identical "different id, same urn" DuplicateUrnError this
+    # task fixed for glossary. Fix: enumerate() each list (list order is
+    # preserved 1:1 from content_blocks.py's own idx-ordered output -- see
+    # _finalize_blocks above, which only pops a key and sets one field,
+    # never reorders or filters) and fold that position into urn_parts, so
+    # every urn gets the same positional disambiguator its id already has.
+    for idx, a in enumerate(activities):
         _attach_canonical(a, object_type="activity",
-                           urn_parts=["activity", a.get("activity_type", ""), str(a.get("page"))],
+                           urn_parts=["activity", a.get("activity_type", ""), str(a.get("page")), str(idx)],
                            extraction_stage="content_blocks.detect_activities", confidence=0.6)
-    for bx in boxes:
+    for idx, bx in enumerate(boxes):
         _attach_canonical(bx, object_type="box",
-                           urn_parts=["box", bx.get("box_type", ""), str(bx.get("page"))],
+                           urn_parts=["box", bx.get("box_type", ""), str(bx.get("page")), str(idx)],
                            extraction_stage="content_blocks.detect_boxes", confidence=0.6)
-    for w in warnings_list:
+    for idx, w in enumerate(warnings_list):
         _attach_canonical(w, object_type="warning",
-                           urn_parts=["warning", w.get("warning_type", ""), str(w.get("page"))],
+                           urn_parts=["warning", w.get("warning_type", ""), str(w.get("page")), str(idx)],
                            extraction_stage="content_blocks.detect_warnings", confidence=0.6)
-    for n in notes:
-        _attach_canonical(n, object_type="note", urn_parts=["note", str(n.get("page"))],
+    for idx, n in enumerate(notes):
+        _attach_canonical(n, object_type="note", urn_parts=["note", str(n.get("page")), str(idx)],
                            extraction_stage="content_blocks.detect_notes", confidence=0.6)
-    for ex in examples:
-        _attach_canonical(ex, object_type="example", urn_parts=["example", str(ex.get("page"))],
+    for idx, ex in enumerate(examples):
+        _attach_canonical(ex, object_type="example", urn_parts=["example", str(ex.get("page")), str(idx)],
                            extraction_stage="content_blocks.detect_examples", confidence=0.6)
 
     # ---- graphs + semantic index -- restored ----
@@ -1822,17 +1910,31 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
         logger.info("Using prelims/TOC file: %s", os.path.basename(prelims_path))
     book_ctx = pdf_parser.load_book_context(prelims_path)
     if book_title_override:
-        # The folder name is authoritative for the book's OUTPUT IDENTITY
-        # (book_slug / output directory grouping) -- never inferred from
-        # the PDFs themselves. It is deliberately NOT written into
-        # book_ctx.book_title: that field is reserved for the OFFICIAL
-        # NCERT title parsed from the prelims/TOC PDF (see BookContext.
-        # book_folder_name's docstring for the regression this avoids).
-        # Only when no official title could be parsed at all (no prelims
-        # file, or parsing failed -- book_title is still the class
-        # default "untitled-book") do we fall back to the folder name as
-        # the displayed title too, since it's the only signal we have.
-        book_ctx.book_folder_name = book_title_override
+        # Phase 1 Final Metadata Architecture Refinement (STEP 2/3):
+        # book_ctx.book_folder_name is a BACKWARD-COMPATIBILITY override
+        # only (see BookContext.book_folder_name's own docstring) -- it
+        # must win over derived_storage_identity for books that have no
+        # distinguishing cover metadata of their own (subtitle/Part/
+        # Volume), because in that case the folder name is the ONLY
+        # signal available to keep sibling books (e.g. "Part 1"/"Part 2"
+        # folders of the same subject) from colliding in json_out/.
+        #
+        # It must NOT be set when the prelims/TOC PDF already gave us
+        # distinguishing cover metadata -- doing so unconditionally (the
+        # pre-refinement behavior) permanently shadows
+        # derived_storage_identity for every single book, since
+        # book_orchestrator.py always supplies a folder name for every
+        # discovered book. That defeated the entire point of the
+        # refinement: real NCERT runs kept writing to operator-named
+        # folders like "Accountancy_Part_1" instead of the canonical
+        # "Accountancy - Partnership Accounts" the book manifest itself
+        # already recorded as this book's storage_identity.
+        if not (book_ctx.cover_subtitle or book_ctx.part or book_ctx.volume):
+            book_ctx.book_folder_name = book_title_override
+        # book_title itself is never written from the folder name unless
+        # no official title could be parsed at all (no prelims file, or
+        # parsing failed -- book_title is still the class default
+        # "untitled-book"), since it's the only signal we have then.
         if book_ctx.book_title == "untitled-book":
             book_ctx.book_title = book_title_override
 
@@ -1979,7 +2081,10 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
         book_slug = slugify(pdf_parser.book_slug_source(book_ctx))
         book_manifest_path = json_writer.write_book_manifest(
             book_ctx.klass, book_ctx.subject, book_slug,
-            book_ctx.book_title, book_ctx.toc, output_root=output_root)
+            book_ctx.book_title, book_ctx.toc, output_root=output_root,
+            cover_subtitle=book_ctx.cover_subtitle, part=book_ctx.part, volume=book_ctx.volume,
+            edition=book_ctx.edition, educational_identity=book_ctx.educational_identity,
+            storage_identity=book_ctx.derived_storage_identity)
 
     logger.info("Done. %d chapter JSON file(s) written, %d failed.", len(written), failed)
     stats = {"found": total, "written": len(written), "failed": failed, "book_title": book_ctx.book_title}

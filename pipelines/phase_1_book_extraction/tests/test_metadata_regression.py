@@ -153,6 +153,81 @@ def test_override_becomes_title_only_when_no_official_title_parsed(tmp_path, mon
     assert book_ctx.book_folder_name == "Class_10_Science"
 
 
+def test_override_does_not_shadow_derived_storage_identity_when_cover_metadata_present(
+        tmp_path, monkeypatch):
+    """Compliance-audit regression: a book whose prelims/TOC PDF carries
+    distinguishing cover metadata (subtitle/Part/Volume) must use
+    derived_storage_identity ("Accountancy - Partnership Accounts") for
+    its OneDrive folder, not the raw operator-named pdf_in/ subfolder
+    ("Accountancy_Part_1") -- even though book_orchestrator.py always
+    supplies a book_title_override for every discovered book. Before this
+    fix, book_ctx.book_folder_name was set unconditionally, so
+    derived_storage_identity never won for any real run despite being
+    computed correctly and recorded in the book manifest."""
+    import pipeline
+
+    official_ctx = BookContext(book_title="Accountancy", subject="Accountancy", klass="12",
+                                cover_subtitle="Partnership Accounts")
+    monkeypatch.setattr(pipeline.pdf_parser, "load_book_context", lambda *_a, **_k: official_ctx)
+    monkeypatch.setattr(pipeline.pdf_parser, "find_prelims_pdf", lambda paths: None)
+
+    pdf_folder = tmp_path / "Accountancy_Part_1"
+    pdf_folder.mkdir()
+    (pdf_folder / "leac101.pdf").write_bytes(b"%PDF-1.4 fake\n")
+
+    captured = {}
+
+    def _fake_execute_chapter(**kwargs):
+        captured["book_ctx"] = kwargs["book_ctx"]
+        return {"chapter_title": "x", "chapter_key": "x", "output_path": None,
+                "decision": "reuse", "reason": "test short-circuit"}
+
+    monkeypatch.setattr(pipeline, "_f3_execute_chapter", _fake_execute_chapter)
+
+    pipeline.process_all_pdfs(use_vlm=False, pdf_folder=str(pdf_folder),
+                               output_root="out", book_title_override="Accountancy_Part_1")
+
+    book_ctx = captured["book_ctx"]
+    assert book_ctx.book_title == "Accountancy"
+    # The operator folder name must NOT have shadowed the canonical
+    # cover-metadata-derived identity.
+    assert book_ctx.book_folder_name is None
+    assert book_ctx.derived_storage_identity == "Accountancy - Partnership Accounts"
+    assert book_slug_source(book_ctx) == "Accountancy - Partnership Accounts"
+
+
+def test_override_still_wins_when_no_distinguishing_cover_metadata(tmp_path, monkeypatch):
+    """The flip side: when the prelims PDF gives no distinguishing
+    metadata at all, the folder-name override is still the only signal
+    available to keep sibling folders from colliding, so it must still
+    win (unchanged, pre-refinement behavior for the common case)."""
+    import pipeline
+
+    official_ctx = BookContext(book_title="Biology", subject="Biology", klass="12")
+    monkeypatch.setattr(pipeline.pdf_parser, "load_book_context", lambda *_a, **_k: official_ctx)
+    monkeypatch.setattr(pipeline.pdf_parser, "find_prelims_pdf", lambda paths: None)
+
+    pdf_folder = tmp_path / "Class_12_Biology"
+    pdf_folder.mkdir()
+    (pdf_folder / "lebo101.pdf").write_bytes(b"%PDF-1.4 fake\n")
+
+    captured = {}
+
+    def _fake_execute_chapter(**kwargs):
+        captured["book_ctx"] = kwargs["book_ctx"]
+        return {"chapter_title": "x", "chapter_key": "x", "output_path": None,
+                "decision": "reuse", "reason": "test short-circuit"}
+
+    monkeypatch.setattr(pipeline, "_f3_execute_chapter", _fake_execute_chapter)
+
+    pipeline.process_all_pdfs(use_vlm=False, pdf_folder=str(pdf_folder),
+                               output_root="out", book_title_override="Class_12_Biology")
+
+    book_ctx = captured["book_ctx"]
+    assert book_ctx.book_folder_name == "Class_12_Biology"
+    assert book_slug_source(book_ctx) == "Class_12_Biology"
+
+
 # ---------------------------------------------------------------------------
 # 3. Cross-module consistency: pipeline.process_chapter()'s book_slug and
 #    build_executor.execute_chapter()'s book_slug (the reuse-decision
@@ -223,7 +298,7 @@ def test_auto_detect_subject_returns_display_cased_value():
 def test_parse_book_title_and_class_returns_display_cased_subject():
     def L(text, size=20.0, page=0):
         return pdf_parser.Line(text=text, size=size, max_size=size, bold=False,
-                                font="F", page=page, y=float(page * 100))
+                                font="F", page=page, y=float(page * 100), page_height=800.0)
 
     lines = [
         L("Introductory to Macroeconomics", size=40.0),
