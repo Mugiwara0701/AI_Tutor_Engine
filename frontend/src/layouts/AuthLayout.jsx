@@ -1,13 +1,22 @@
 import AuthLeftPanel from "../features/auth/components/AuthLeftPanel.jsx";
+import AuthBackgroundArt from "../features/auth/components/AuthBackgroundArt.jsx";
 
 export default function AuthLayout({ children }) {
   return (
-    <div className="min-h-screen w-full bg-bgBlueTint flex items-center justify-center p-4 sm:p-8">
-      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-16 items-center">
-        <AuthLeftPanel />
-        <div className="flex items-center justify-center">
-          <div className="w-full max-w-[500px] bg-white rounded-3xl shadow-xl shadow-slate-200/60 border border-slate-100 p-8 sm:p-12">
-            {children}
+    <div className="login-background relative min-h-screen w-full overflow-hidden">
+      {/* Flowing network illustration, bottom-left — unchanged from before */}
+      <AuthBackgroundArt />
+
+      <div className="relative min-h-screen flex items-center justify-center px-6 py-12 lg:px-16">
+        <div className="w-full max-w-[1200px] flex flex-col lg:flex-row items-center gap-12 lg:gap-20">
+          <div className="w-full lg:flex-1">
+            <AuthLeftPanel />
+          </div>
+
+          <div className="w-full lg:w-[440px] lg:shrink-0">
+            <div className="bg-white rounded-card border border-white/10 shadow-card-lg px-7 py-9 sm:px-10 sm:py-10">
+              {children}
+            </div>
           </div>
         </div>
       </div>

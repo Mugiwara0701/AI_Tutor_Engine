@@ -61,21 +61,19 @@ export default function SocialAuthButtons() {
         type="button"
         onClick={() => handleSocialLogin("Google")}
         disabled={loadingProvider !== null}
-        className="flex items-center justify-center gap-2 border border-slate-200 rounded-lg py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
+        className="flex items-center justify-center gap-2 h-12 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-60 focus:outline-none focus:ring-4 focus:ring-primary/10"
       >
         <GoogleIcon />
-        {loadingProvider === "Google" ? "Signing in…" : "Sign in with Google"}
+        {loadingProvider === "Google" ? "Signing in…" : "Google"}
       </button>
       <button
         type="button"
         onClick={() => handleSocialLogin("Microsoft")}
         disabled={loadingProvider !== null}
-        className="flex items-center justify-center gap-2 border border-slate-200 rounded-lg py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-60"
+        className="flex items-center justify-center gap-2 h-12 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-colors disabled:opacity-60 focus:outline-none focus:ring-4 focus:ring-primary/10"
       >
         <MicrosoftIcon />
-        {loadingProvider === "Microsoft"
-          ? "Signing in…"
-          : "Sign in with Microsoft"}
+        {loadingProvider === "Microsoft" ? "Signing in…" : "Microsoft"}
       </button>
     </div>
   );

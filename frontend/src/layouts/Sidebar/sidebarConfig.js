@@ -5,7 +5,6 @@ import {
   Library,
   Share2,
   Code2,
-  UploadCloud,
   Archive,
   Activity,
   HardDrive,
@@ -53,15 +52,6 @@ export const SIDEBAR_NAV = [
     label: "Prompt Studio",
     icon: Code2,
     path: "/prompt-studio",
-  },
-  {
-    key: "ingestion",
-    label: "Ingestion",
-    icon: UploadCloud,
-    path: "/ingestion",
-    // Adds a second breadcrumb crumb ("Ingestion > Upload Books") without
-    // introducing an expandable sidebar sub-menu — see BreadcrumbNav.jsx.
-    breadcrumbChild: "Upload Books",
   },
   {
     key: "zip-manager",
