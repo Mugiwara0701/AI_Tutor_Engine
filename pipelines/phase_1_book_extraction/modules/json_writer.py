@@ -42,7 +42,26 @@ logger = logging.getLogger("ncert_pipeline.writer")
 # is where every write below actually lands) so a book's OneDrive folder is
 # ready for logs/cache/asset writers that land in a future phase without
 # needing another round of folder-creation code.
-_BOOK_SUBFOLDERS = ("json_out", "logs", "cache", "assets")
+#
+# Phase 1 Output Persistence Enhancement: _ARTIFACT_SUBFOLDERS below are
+# additive siblings of json_out/ for the chapter-scoped Phase 1 artifacts
+# that previously existed only in memory (Compiler IR registries, the
+# Knowledge Graph, the Build Dependency Graph, Stage D validation
+# reports, and Build Metadata) -- see artifact_output_dir()/
+# artifact_output_path() further down. Folded into _BOOK_SUBFOLDERS so
+# they are provisioned by the exact same book_output_dir() loop that
+# already provisions logs/cache/assets, rather than a second
+# folder-creation code path.
+_ARTIFACT_SUBFOLDERS = (
+    "registries",         # compiler/persistence.py       -- Compiler IR (Stage B) canonical registries
+    "knowledge_graph",     # knowledge_graph/persistence.py -- Stage C Knowledge Graph
+    "dependency_graph",    # dependency_graph/persistence.py -- Phase E2 Build Dependency Graph
+    "validation",          # validation/persistence.py     -- Stage D1/D2/D3 validation reports
+    "compiler_metadata",   # compiler/persistence.py       -- Compiler IR manifest/statistics/fingerprints/etc.
+    "build_metadata",      # build_metadata/persistence.py -- Phase E1 Build Metadata
+)
+
+_BOOK_SUBFOLDERS = ("json_out", "logs", "cache", "assets") + _ARTIFACT_SUBFOLDERS
 
 _storage_singleton: Optional[OneDriveStorage] = None
 
@@ -108,13 +127,68 @@ def book_output_dir(klass: str, subject: str, book_slug: str, output_root: Optio
     folder directly, not a books-in-general root).
     """
     storage = _get_storage()
-    book_dir = output_root.strip("/") if output_root is not None else \
-        storage.resolve_path(STORAGE_BOARD, klass, subject, book_slug)
+    book_dir = _resolve_book_dir(klass, subject, book_slug, output_root=output_root)
 
     for sub in _BOOK_SUBFOLDERS:
         storage.create_directory(path=f"{book_dir}/{sub}")
 
     return f"{book_dir}/json_out"
+
+
+def _resolve_book_dir(klass: str, subject: str, book_slug: str, output_root: Optional[str] = None) -> str:
+    """The book-folder-only half of book_output_dir()'s own path
+    resolution (no `/json_out` suffix, no folder creation) -- extracted
+    so book_output_dir() and artifact_output_dir() (Phase 1 Output
+    Persistence Enhancement, below) resolve the exact same book root
+    from the exact same logic instead of two copies drifting apart.
+    Behavior is unchanged: book_output_dir() calls this and appends
+    `/json_out` exactly as it always inlined this itself."""
+    storage = _get_storage()
+    return output_root.strip("/") if output_root is not None else \
+        storage.resolve_path(STORAGE_BOARD, klass, subject, book_slug)
+
+
+def artifact_output_dir(artifact_type: str, klass: str, subject: str, book_slug: str,
+                         output_root: Optional[str] = None) -> str:
+    """Phase 1 Output Persistence Enhancement: OneDrive-relative
+    directory for one chapter-scoped Phase 1 artifact type (e.g.
+    "knowledge_graph"), a sibling of json_out/ under the same book
+    folder book_output_dir() already provisions. `artifact_type` must
+    be one of _ARTIFACT_SUBFOLDERS -- every one of those folders is
+    already created eagerly by book_output_dir()'s own loop over
+    _BOOK_SUBFOLDERS (which now includes _ARTIFACT_SUBFOLDERS), and
+    storage.upload_file()/upload_json() themselves ensure the
+    destination folder exists on every write regardless -- so this
+    function only resolves and returns the path, it does not need to
+    create_directory() again.
+
+    Callers that persist a chapter-scoped Phase 1 artifact before any
+    chapter JSON has been written this run (e.g. a standalone script or
+    test) still get a valid path -- the folder is created lazily by the
+    first upload_json() call, same as every other OneDrive write in
+    this codebase.
+    """
+    if artifact_type not in _ARTIFACT_SUBFOLDERS:
+        raise ValueError(
+            f"artifact_output_dir(): unknown artifact_type {artifact_type!r} -- "
+            f"expected one of {_ARTIFACT_SUBFOLDERS!r}."
+        )
+    book_dir = _resolve_book_dir(klass, subject, book_slug, output_root=output_root)
+    return f"{book_dir}/{artifact_type}"
+
+
+def artifact_output_path(artifact_type: str, klass: str, subject: str, book_slug: str, chapter_number,
+                          chapter_title: str, output_root: Optional[str] = None) -> str:
+    """Phase 1 Output Persistence Enhancement: the artifact_output_dir()
+    analogue of chapter_output_path() -- same "<NN>_<chapter-slug>.json"
+    filename convention chapter_output_path() already uses (so a
+    chapter's Chapter JSON and its Knowledge Graph/Dependency
+    Graph/etc. records are trivially correlatable by filename), under
+    the requested artifact_type's own folder instead of json_out/."""
+    out_dir = artifact_output_dir(artifact_type, klass, subject, book_slug, output_root=output_root)
+    chnum_str = str(chapter_number).zfill(2) if isinstance(chapter_number, int) else str(chapter_number)
+    filename = f"{chnum_str}_{slugify(chapter_title)}.json"
+    return f"{out_dir}/{filename}"
 
 
 def chapter_output_path(klass: str, subject: str, book_slug: str, chapter_number, chapter_title: str,
@@ -123,6 +197,18 @@ def chapter_output_path(klass: str, subject: str, book_slug: str, chapter_number
     chnum_str = str(chapter_number).zfill(2) if isinstance(chapter_number, int) else str(chapter_number)
     filename = f"{chnum_str}_{slugify(chapter_title)}.json"
     return f"{out_dir}/{filename}"
+
+
+def artifact_types() -> tuple:
+    """Public accessor for _ARTIFACT_SUBFOLDERS -- the closed set of
+    valid `artifact_type` values for artifact_output_dir()/
+    artifact_output_path() -- so each artifact package's own
+    persistence.py/discovery.py (compiler/, knowledge_graph/,
+    dependency_graph/, validation/, build_metadata/) doesn't reach into
+    this module's private constant directly. Mirrors artifact_manager.
+    persistence.builds_root()'s own "public accessor for a private
+    module constant" convention."""
+    return _ARTIFACT_SUBFOLDERS
 
 
 def is_already_extracted(klass: str, subject: str, book_slug: str, chapter_number, chapter_title: str,

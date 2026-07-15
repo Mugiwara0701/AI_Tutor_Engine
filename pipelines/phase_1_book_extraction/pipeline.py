@@ -118,6 +118,21 @@ from incremental_compilation_finalization import state as incremental_compilatio
 from build_executor.executor import execute_chapter as _f3_execute_chapter
 from build_executor.plan import generate_execution_plan as _f3_generate_execution_plan
 
+# ---- Phase 1 Output Persistence Enhancement ------------------------------
+# Additive-only: persists chapter-scoped Phase 1 artifacts that already
+# exist (Compiler IR registries/metadata, the Knowledge Graph, the Build
+# Dependency Graph, Stage D validation, Build Metadata) but previously
+# lived only in each package's own state.py module-level slots. See each
+# module's own docstring for exactly what it persists and why. Wired in
+# at the single call site near the end of process_chapter(), after
+# json_writer.write_chapter_json() -- never before it, never changing
+# Stage A-E's own call order above.
+from compiler.persistence import persist_registries, persist_compiler_metadata
+from knowledge_graph.persistence import persist_knowledge_graph
+from dependency_graph.persistence import persist_dependency_graph
+from validation.persistence import persist_validation_record
+from build_metadata.persistence import persist_build_metadata as _persist_build_metadata_record
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -207,6 +222,111 @@ def _recover_script_mismatched_text(doc: fitz.Document, structure: pdf_parser.Ch
             extraction_logs["warnings"].append(
                 f"heading on page {t.page_start} text layer didn't match '{lang}' script and VLM recovery did "
                 f"not return usable text — keeping the original (possibly garbled) title")
+
+
+def _persist_phase1_artifacts(
+    *,
+    klass: str, subject: str, book_slug: str, chapter_number, chapter_title: str,
+    output_root: Optional[str],
+    registry_manager,
+    compiler_manifest: Dict[str, Any], compiler_statistics: Dict[str, Any],
+    compiler_registry_fingerprints: Dict[str, str], compiler_fingerprint: str,
+    compiler_validation_report: Dict[str, Any], compiler_readiness_report: Dict[str, Any],
+    compiler_build_summary: Dict[str, Any], final_compiler_status: str,
+    knowledge_graph_metadata, knowledge_graph_registry_manager,
+    knowledge_graph_manifest: Dict[str, Any], knowledge_graph_statistics: Dict[str, Any],
+    knowledge_graph_validation_report: Dict[str, Any],
+    knowledge_graph_registry_fingerprints: Dict[str, str], knowledge_graph_fingerprint: str,
+    knowledge_graph_readiness_report: Dict[str, Any], knowledge_graph_build_summary: Dict[str, Any],
+    final_graph_status: str,
+    system_integrity_report: Dict[str, Any], determinism_report: Dict[str, Any],
+    release_readiness_report: Dict[str, Any], release_status: str,
+    build_metadata: Dict[str, Any], dependency_graph: Dict[str, Any],
+) -> None:
+    """Phase 1 Output Persistence Enhancement: persists every
+    chapter-scoped Phase 1 artifact that, before this function existed,
+    lived only in its own package's state.py module-level slots (see
+    PHASE1_ARCHITECTURE.md). Every argument here is an already-computed
+    value pipeline.process_chapter() collected above -- this function
+    does not compute, validate, or reshape a single one of them, it
+    only writes each to the storage location its own package's
+    persistence.py module already defines.
+
+    NEVER RAISES: mirrors runtime.runtime.CompilerRuntime._record_*()'s
+    own "never raises" contract for exactly the same reason -- a
+    persistence failure for one of these diagnostic/inspection
+    artifacts must never mask or replace this chapter's real
+    extraction outcome (the Chapter JSON write immediately before this
+    call already succeeded by the time this runs). Each artifact type
+    is wrapped in its own independent try/except so one artifact type
+    failing to persist (e.g. a transient storage error) never prevents
+    the others from being persisted.
+    """
+    storage = json_writer.get_storage()
+
+    try:
+        persist_registries(storage, registry_manager, klass, subject, book_slug, chapter_number,
+                            chapter_title, output_root=output_root)
+        persist_compiler_metadata(
+            storage, klass, subject, book_slug, chapter_number, chapter_title,
+            manifest=compiler_manifest, statistics=compiler_statistics,
+            registry_fingerprints=compiler_registry_fingerprints,
+            compiler_fingerprint=compiler_fingerprint,
+            validation_report=compiler_validation_report,
+            readiness_report=compiler_readiness_report,
+            build_summary=compiler_build_summary,
+            final_status=final_compiler_status,
+            output_root=output_root,
+        )
+    except Exception:
+        logger.warning("chapter '%s': failed to persist Compiler IR artifacts (registries/"
+                        "compiler_metadata) -- chapter extraction outcome is unaffected.",
+                        chapter_title, exc_info=True)
+
+    try:
+        persist_knowledge_graph(
+            storage, klass, subject, book_slug, chapter_number, chapter_title,
+            metadata=knowledge_graph_metadata,
+            registry_manager=knowledge_graph_registry_manager,
+            manifest=knowledge_graph_manifest, statistics=knowledge_graph_statistics,
+            validation_report=knowledge_graph_validation_report,
+            registry_fingerprints=knowledge_graph_registry_fingerprints,
+            graph_fingerprint=knowledge_graph_fingerprint,
+            readiness_report=knowledge_graph_readiness_report,
+            build_summary=knowledge_graph_build_summary,
+            final_status=final_graph_status,
+            output_root=output_root,
+        )
+    except Exception:
+        logger.warning("chapter '%s': failed to persist the Knowledge Graph -- chapter "
+                        "extraction outcome is unaffected.", chapter_title, exc_info=True)
+
+    try:
+        persist_dependency_graph(storage, dependency_graph, klass, subject, book_slug, chapter_number,
+                                  chapter_title, output_root=output_root)
+    except Exception:
+        logger.warning("chapter '%s': failed to persist the Dependency Graph -- chapter "
+                        "extraction outcome is unaffected.", chapter_title, exc_info=True)
+
+    try:
+        persist_validation_record(
+            storage, klass, subject, book_slug, chapter_number, chapter_title,
+            system_integrity_report=system_integrity_report,
+            determinism_report=determinism_report,
+            release_readiness_report=release_readiness_report,
+            release_status=release_status,
+            output_root=output_root,
+        )
+    except Exception:
+        logger.warning("chapter '%s': failed to persist the Stage D validation record -- "
+                        "chapter extraction outcome is unaffected.", chapter_title, exc_info=True)
+
+    try:
+        _persist_build_metadata_record(storage, build_metadata, klass, subject, book_slug, chapter_number,
+                                        chapter_title, output_root=output_root)
+    except Exception:
+        logger.warning("chapter '%s': failed to persist Build Metadata -- chapter extraction "
+                        "outcome is unaffected.", chapter_title, exc_info=True)
 
 
 def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_order_fallback: int,
@@ -405,6 +525,29 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # silently pick whichever record happened to be built last. Now each
     # distinct concept name gets exactly one canonical record with a
     # stable id + urn and a `topics` list of every topic that mentions it.
+    #
+    # DUPLICATE-ID INVESTIGATION FIX (populate_registries() DuplicateIdError
+    # on e.g. "...-concept-science-vs-art-<hash>"): the dedup key here used
+    # to be plain `name.lower()` -- case-insensitive only. The canonical id
+    # itself, though, is `make_id(chapter_title, "concept", name)`, which is
+    # built via slugify(), and slugify() folds far more than case: EVERY
+    # non-letter/mark/number character (spaces, periods, extra whitespace,
+    # ...) collapses to a single '-'. So two VLM-returned name spellings
+    # that differ only in punctuation/whitespace -- e.g. "Science vs Art"
+    # and "Science vs. Art" (a realistic same-concept, different-topic VLM
+    # phrasing difference) -- hashed to DIFFERENT `name.lower()` keys (so
+    # this dict happily created two separate concept_registry records) but
+    # the IDENTICAL make_id()/make_urn() id/urn (so those two records
+    # disagree with the dedup key about what makes two mentions "the same
+    # concept"). Nothing ever surfaced this before Phase B1's
+    # populate_registries() -> CanonicalRegistry.insert() started enforcing
+    # real id-uniqueness on every concept object: the old pipeline just
+    # silently shipped two same-id concept records in the Chapter JSON's
+    # flat `concepts` list. The dedup key must therefore be derived the
+    # SAME way the id itself is (slugify()), not a weaker, independent
+    # normalization -- otherwise "two records, same id" is always possible
+    # for punctuation/whitespace-only spelling differences, regardless of
+    # what registry-layer validation exists downstream.
     concept_registry: Dict[str, Dict[str, Any]] = {}
     glossary: List[Dict[str, Any]] = []
     for t in structure.topics:
@@ -416,7 +559,11 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
             if not name:
                 continue
             this_topic_concept_names.append(name)
-            key = name.lower()
+            # Same normalization make_id()/make_urn() use for this exact
+            # (chapter_title, "concept", name) triple, so two name spellings
+            # that would collide on canonical id always collide on this key
+            # too -- see the DUPLICATE-ID INVESTIGATION FIX comment above.
+            key = slugify(name)
             existing = concept_registry.get(key)
             if existing is None:
                 # A1/A2/A3: id/urn generated the same way as before (same
@@ -501,7 +648,7 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         # for every name in this_topic_concept_names by this point -- is the
         # canonical reference stored in TopicNode.concepts.
         this_topic_concept_ids = [
-            concept_registry[n.lower()]["id"] for n in this_topic_concept_names if n.lower() in concept_registry
+            concept_registry[slugify(n)]["id"] for n in this_topic_concept_names if slugify(n) in concept_registry
         ]
 
         topics_out.append({
@@ -1858,6 +2005,47 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     out_path = json_writer.write_chapter_json(chapter_dict, structure.klass, structure.subject, book_slug,
                                                structure.chapter_number, structure.chapter_title,
                                                output_root=output_root)
+    # ---- Phase 1 Output Persistence Enhancement -----------------------------
+    # Purely additive: every artifact below was already fully computed by
+    # Stage B-E1 above (nothing here recomputes, redesigns, or reorders
+    # anything) -- this call site only decides that these already-existing,
+    # previously in-memory-only outputs are now ALSO written to durable
+    # storage, exactly like the Chapter JSON write immediately above it.
+    # Never runs before write_chapter_json() (Stage A's own persisted
+    # artifact is unaffected either way), and a failure here can never mask
+    # or replace this chapter's real extraction outcome -- same "never
+    # raises" contract CompilerRuntime._record_*() (Phase F2-F5) already
+    # uses one layer up, applied here at chapter scope.
+    _persist_phase1_artifacts(
+        klass=structure.klass, subject=structure.subject, book_slug=book_slug,
+        chapter_number=structure.chapter_number, chapter_title=structure.chapter_title,
+        output_root=output_root,
+        registry_manager=registry_manager,
+        compiler_manifest=compiler_manifest,
+        compiler_statistics=compiler_statistics,
+        compiler_registry_fingerprints=compiler_registry_fingerprints,
+        compiler_fingerprint=compiler_fingerprint,
+        compiler_validation_report=compiler_validation_report,
+        compiler_readiness_report=compiler_readiness_report,
+        compiler_build_summary=compiler_finalization["build_summary"],
+        final_compiler_status=compiler_finalization["final_status"],
+        knowledge_graph_metadata=knowledge_graph.metadata,
+        knowledge_graph_registry_manager=knowledge_graph_registry_manager,
+        knowledge_graph_manifest=knowledge_graph_manifest,
+        knowledge_graph_statistics=knowledge_graph_statistics,
+        knowledge_graph_validation_report=knowledge_graph_validation_report,
+        knowledge_graph_registry_fingerprints=knowledge_graph_registry_fingerprints,
+        knowledge_graph_fingerprint=knowledge_graph_fingerprint,
+        knowledge_graph_readiness_report=knowledge_graph_readiness_report,
+        knowledge_graph_build_summary=knowledge_graph_finalization["graph_build_summary"],
+        final_graph_status=knowledge_graph_finalization["graph_final_status"],
+        system_integrity_report=system_integrity_report,
+        determinism_report=determinism_report,
+        release_readiness_report=release_finalization["release_readiness_report"],
+        release_status=release_finalization["release_status"],
+        build_metadata=build_metadata_result["build_metadata"],
+        dependency_graph=dependency_graph_result["dependency_graph"],
+    )
     return out_path
 
 
@@ -1929,7 +2117,9 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
         # folders like "Accountancy_Part_1" instead of the canonical
         # "Accountancy - Partnership Accounts" the book manifest itself
         # already recorded as this book's storage_identity.
-        if not (book_ctx.cover_subtitle or book_ctx.part or book_ctx.volume):
+        if not (book_ctx.cover_subtitle or book_ctx.part or book_ctx.volume) \
+        and book_ctx.book_title == "untitled-book" \
+        and not book_ctx.book_title_needs_recovery:
             book_ctx.book_folder_name = book_title_override
         # book_title itself is never written from the folder name unless
         # no official title could be parsed at all (no prelims file, or
@@ -2000,6 +2190,63 @@ def process_all_pdfs(use_vlm: bool = True, page_batch_size: int = DEFAULT_PAGE_B
                          "(semantic fields will be empty). Install torch/transformers/bitsandbytes "
                          "and a GPU, or pass --no-vlm to silence this.", e)
             use_vlm = False
+
+    # Cover-metadata (title + class) VLM recovery fallback -- see
+    # modules/pdf_parser.py's needs_vlm_cover_metadata_recovery() /
+    # BookContext.book_title_needs_recovery / .klass_needs_recovery
+    # docstrings. load_book_context() above stays deterministic-only by
+    # design; this is the first point in the run where the VLM is
+    # guaranteed loaded, so this is where its fallback belongs.
+    #
+    # Deliberately keyed off book_title_needs_recovery/klass_needs_recovery
+    # (set once, at their true source inside load_book_context()) rather
+    # than re-checking `book_ctx.book_title == "untitled-book"` here: the
+    # book_title_override folder-name fallback above (line ~2126) may
+    # already have overwritten book_title away from that sentinel by this
+    # point, which would make such a check always False and silently skip
+    # real recovery for the common case where book_orchestrator supplies a
+    # folder name for every book. The explicit flags don't have that
+    # problem, so a real cover-printed title always still gets a chance to
+    # override the folder-name guess here.
+    vlm_title_recovered = False
+    if use_vlm and prelims_path and pdf_parser.needs_vlm_cover_metadata_recovery(book_ctx):
+        try:
+            cover_doc = fitz.open(prelims_path)
+            result = semantic_processor.process_recover_book_cover_metadata(
+                cover_doc, book_ctx.book_title_line_page,
+                subject=book_ctx.subject, ocr_title_hint=book_ctx.book_title_ocr_attempt,
+            )
+            cover_doc.close()
+            if book_ctx.book_title_needs_recovery:
+                recovered_title = result.get("book_title")
+                if recovered_title:
+                    logger.info("Recovered book_title via VLM fallback: %r -> %r",
+                                book_ctx.book_title_legacy_raw, recovered_title)
+                    book_ctx.book_title = recovered_title
+                    vlm_title_recovered = True                                     # <-- ADD THIS LINE
+                else:
+                    logger.warning(
+                        "VLM cover recovery did not produce a usable book_title for %s; "
+                        "book_title remains %r.", prelims_path, book_ctx.book_title,
+                    )
+            if book_ctx.klass_needs_recovery and book_ctx.klass == "unknown":
+                recovered_klass = str(result.get("klass") or "").strip()
+                if recovered_klass.isdigit() and 1 <= int(recovered_klass) <= 12:
+                    logger.info("Recovered klass via VLM fallback: %r", recovered_klass)
+                    book_ctx.klass = recovered_klass
+                else:
+                    logger.warning(
+                        "VLM cover recovery did not produce a usable klass for %s (got %r); "
+                        "klass remains 'unknown'.", prelims_path, recovered_klass,
+                    )
+        except Exception as e:
+            logger.warning("VLM cover-metadata recovery failed for %s (%s); book_title/klass ""remain as previously resolved.", prelims_path, e)
+
+    if book_ctx.book_folder_name is None and book_title_override and not vlm_title_recovered \
+        and book_ctx.book_title == "untitled-book" \
+        and not (book_ctx.cover_subtitle or book_ctx.part or book_ctx.volume):
+        book_ctx.book_folder_name = book_title_override
+
 
     total = len(chapter_paths)
     print(f"\nFound {total} PDF{'s' if total != 1 else ''}")

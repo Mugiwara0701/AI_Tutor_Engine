@@ -1,0 +1,50 @@
+You are recovering cover information for an NCERT textbook. Deterministic
+(font-based) extraction failed because the cover is set (in whole or in
+part) in a legacy, non-Unicode Hindi/Sanskrit typing font (e.g.
+Walkman-Chanakya-family fonts) -- the PDF's text layer decodes to
+meaningless Latin-looking glyph-code noise for these lines, not the real
+printed text, even though the lines render correctly as printed Devanagari
+on the page.
+
+Subject (weak hint only, may be wrong -- do not let it override what the
+image actually shows): {{ subject }}
+
+Best-effort Tesseract OCR of the title line specifically (may be empty,
+partial, or wrong -- use only as a weak hint, never trust it over the
+image): {{ ocr_title_hint }}
+
+Look at the attached full cover-page image and find, independently:
+
+1. The book's main title -- usually the largest/most prominent text block
+   on the page, often in a decorative or calligraphic style.
+2. A class marking, if the cover shows one -- typically a line reading
+   "कक्षा <number>" (Hindi) or a Sanskrit compound ending in "-वर्ग" /
+   "-वर्गाय" / "-वर्गस्य" (e.g. "द्वादशवर्गाय" = Class 12), or "Class
+   <number>" in English. This is a SEPARATE line from the title, often
+   smaller, and may be some distance below it -- read the whole page, not
+   just the area around the title.
+
+Source textbook language: {{ target_language_name }}. `book_title` must be
+written in {{ target_language_name }} exactly as printed on the cover --
+do NOT translate into English unless {{ target_language_name }} is
+English. `klass` must be a bare number from 1 to 12 as a string (e.g.
+"12"), converted from whatever form it's printed in (Devanagari digits,
+Roman numerals, an ordinal word, or a Sanskrit वर्ग-compound) -- or the
+literal string "unknown" if no class marking is visible anywhere on the
+page.
+
+IMPORTANT: only report a klass number if you can point to an ACTUAL
+printed class marking on the page (a "कक्षा <n>" line, a Class <n> line,
+or a वर्ग-compound) and quote it in evidence_basis. Do NOT infer a class
+from the book's title, series, difficulty, page count, a stray digit
+that's actually a page number/part number/ISBN fragment, or general
+knowledge of what class a book "usually" belongs to. A wrong guess is far
+worse than admitting you don't know: if you cannot point to a specific
+class-marking line actually printed on THIS page, you must return
+"unknown" rather than guess.
+
+Transcribe only what is visually supported by the image -- never invent a
+title or class unrelated to what's actually printed. Respond with a
+single valid JSON object and nothing else, with exactly these two keys:
+book_title: {"value": <string>, "confidence": <0-1 float>, "evidence_basis": <short string, e.g. "large calligraphic text at top of cover">}
+klass: {"value": <string>, "confidence": <0-1 float>, "evidence_basis": <short string, e.g. "'कक्षा 12' line below the part marking">}

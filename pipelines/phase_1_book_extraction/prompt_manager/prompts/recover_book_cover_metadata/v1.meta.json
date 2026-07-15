@@ -1,0 +1,7 @@
+{
+  "version": "v1",
+  "author": "prompt_manager_bootstrap",
+  "created_date": "2026-07-15",
+  "modified_date": "2026-07-15",
+  "description": "VLM fallback recovery of a book's cover title and/or class marking when the cover is set (in whole or in part) in a legacy non-Unicode font and both the raw text layer and plain Tesseract OCR fail."
+}

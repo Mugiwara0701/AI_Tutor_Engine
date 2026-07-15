@@ -56,6 +56,21 @@ TASKS = {
         expects_images=True,
         output_contract_name="recover_heading",
     ),
+    # Added alongside the book-title/class VLM-recovery fallback in
+    # pipeline.py (post Qwen2.5-VL preload): recovers a book's cover title
+    # and/or class marking when they're set in a legacy non-Unicode font
+    # and both the raw text layer and plain Tesseract OCR
+    # (pdf_parser._ocr_recover_title/_ocr_recover_class) failed. One
+    # full-page image, two fields recovered together -- see
+    # semantic_processor.process_recover_book_cover_metadata()'s docstring
+    # for why this is a full-page render rather than a tight title crop.
+    "recover_book_cover_metadata": TaskSpec(
+        name="recover_book_cover_metadata", current_version="v1",
+        required_context_vars=["subject", "ocr_title_hint"],
+        optional_context_vars=[],
+        expects_images=True,
+        output_contract_name="recover_book_cover_metadata",
+    ),
     "concept_extraction": TaskSpec(
         name="concept_extraction", current_version="v1",
         required_context_vars=["topic_title", "topic_body_text"],
