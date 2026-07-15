@@ -85,5 +85,14 @@ export const SIDEBAR_NAV = [
     icon: Search,
     path: "/search",
   },
-  { key: "settings", label: "Settings", icon: Settings, path: "/settings" },
+  {
+    key: "settings",
+    label: "Settings",
+    icon: Settings,
+    path: "/settings",
+    // Only admins and managers get Settings (Employee/User Management).
+    // See RequireRole on the /settings route for the actual enforcement -
+    // this just keeps the link from showing to the "user" role.
+    roles: ["admin", "manager"],
+  },
 ];

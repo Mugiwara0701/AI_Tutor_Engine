@@ -74,7 +74,11 @@ export default function Sidebar() {
         </div>
 
         <nav className="flex-1 overflow-y-auto no-scrollbar px-3 py-4 space-y-1">
-          {SIDEBAR_NAV.map((item) => (
+          {SIDEBAR_NAV.filter(
+            (item) =>
+              !item.roles ||
+              item.roles.includes((user?.role || "").trim().toLowerCase()),
+          ).map((item) => (
             <SidebarNavItem key={item.key} item={item} />
           ))}
         </nav>

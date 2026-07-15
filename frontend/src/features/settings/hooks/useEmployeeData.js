@@ -11,7 +11,12 @@ import {
   deleteUserRecord,
 } from "../api/employeeApi.js";
 
-const ROLE_OPTIONS = ["Admin", "Editor", "Viewer", "Employee", "user"];
+// Must match the backend's allowed values exactly: the Pydantic schema
+// (VALID_ROLES in app/models/schemas.py) and the Postgres CHECK constraint
+// (ck_user_profiles_role) both only accept these three, lowercase. Only
+// "admin" currently gets elevated permissions (see require_admin) —
+// "manager" is a valid stored role but has no special access yet.
+const ROLE_OPTIONS = ["admin", "manager", "user"];
 const STATUS_OPTIONS = ["Active", "Inactive"];
 
 export function useEmployeeData() {

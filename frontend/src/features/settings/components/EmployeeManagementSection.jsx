@@ -4,16 +4,25 @@
 // the FastAPI backend (see useEmployeeData / employeeApi.js), which is the
 // only thing that talks to the database. Local React state just mirrors
 // the backend's response so the table updates without a full refetch.
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { UserPlus, Users } from "lucide-react";
 import { useEmployeeData } from "../hooks/useEmployeeData.js";
 import EmployeeFormModal from "./EmployeeFormModal.jsx";
 import EmployeeTable from "./EmployeeTable.jsx";
 import InlineAlert from "../../../components/shared/InlineAlert.jsx";
 import { registerUser } from "../../auth/api/authApi.js";
+import { updateUserRecord } from "../api/employeeApi.js";
 import { DEFAULT_EMPLOYEE_PASSWORD } from "../../../lib/constants.js";
+import { AuthContext } from "../../../context/AuthContext.jsx";
 
 export default function EmployeeManagementSection() {
+  const { user: currentUser } = useContext(AuthContext);
+  // Mirrors the backend's role scoping (see app/auth/service.py
+  // list_users / require_admin): only admins can add/edit/deactivate
+  // accounts. Managers and users get a read-only, already-filtered list
+  // from the API (managers see managers+users, users see only themselves).
+  const isAdmin = (currentUser?.role || "").toLowerCase() === "admin";
+
   const {
     employees,
     roleOptions,
@@ -41,7 +50,7 @@ export default function EmployeeManagementSection() {
 
   const handleSubmit = async (form) => {
     if (editingEmployee) {
-      updateEmployee(editingEmployee.id, form);
+      await updateEmployee(editingEmployee.id, form);
       setAlert({
         type: "success",
         message: `${form.name}'s details were updated.`,
@@ -52,18 +61,33 @@ export default function EmployeeManagementSection() {
     }
 
     // Register the new employee against the real backend, using the same
-    // fixed default password for every account created here.
+    // fixed default password for every account created here. The backend
+    // always creates new accounts as role="user" / Active — it has no way
+    // to accept a role at signup, by design, so nobody can self-elevate
+    // through registration. If this admin picked a different role or
+    // status in the form, apply it now as a follow-up update using our
+    // own admin session.
     const registeredUser = await registerUser({
       name: form.name,
       email: form.userId,
       password: DEFAULT_EMPLOYEE_PASSWORD,
     });
 
+    let finalUser = registeredUser;
+    if (registeredUser?.id && (form.role !== "user" || form.status !== "Active")) {
+      finalUser = await updateUserRecord(registeredUser.id, {
+        role: form.role,
+        status: form.status,
+      });
+    }
+
     addEmployee({
-      name: registeredUser?.name ?? form.name,
+      id: registeredUser?.id,
+      name: finalUser?.name ?? form.name,
       userId: form.userId,
-      role: form.role,
-      status: form.status,
+      role: finalUser?.role ?? "user",
+      status: finalUser?.status ?? "Active",
+      createdOn: finalUser?.createdOn,
     });
     setAlert({
       type: "success",
@@ -100,19 +124,23 @@ export default function EmployeeManagementSection() {
               Employee / User Management
             </h2>
             <p className="text-sm text-slate-500 mt-0.5">
-              Add and manage employee accounts, roles, and access status.
+              {isAdmin
+                ? "Add and manage employee accounts, roles, and access status."
+                : "View team accounts and access status."}
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={openAddModal}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-btn bg-primary text-white text-sm font-medium hover:bg-blue-700 transition-colors shrink-0"
-        >
-          <UserPlus className="w-4 h-4" />
-          Add Employee
-        </button>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-btn bg-primary text-white text-sm font-medium hover:bg-blue-700 transition-colors shrink-0"
+          >
+            <UserPlus className="w-4 h-4" />
+            Add Employee
+          </button>
+        )}
       </div>
 
       {alert && (
@@ -128,20 +156,23 @@ export default function EmployeeManagementSection() {
         onEdit={openEditModal}
         onDelete={handleDelete}
         onToggleStatus={handleToggleStatus}
+        canManage={isAdmin}
       />
 
-      <EmployeeFormModal
-        open={modalOpen}
-        onClose={() => {
-          setModalOpen(false);
-          setEditingEmployee(null);
-        }}
-        onSubmit={handleSubmit}
-        roleOptions={roleOptions}
-        statusOptions={statusOptions}
-        editingEmployee={editingEmployee}
-        isUserIdTaken={isUserIdTaken}
-      />
+      {isAdmin && (
+        <EmployeeFormModal
+          open={modalOpen}
+          onClose={() => {
+            setModalOpen(false);
+            setEditingEmployee(null);
+          }}
+          onSubmit={handleSubmit}
+          roleOptions={roleOptions}
+          statusOptions={statusOptions}
+          editingEmployee={editingEmployee}
+          isUserIdTaken={isUserIdTaken}
+        />
+      )}
     </section>
   );
 }

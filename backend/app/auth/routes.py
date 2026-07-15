@@ -2,18 +2,18 @@
 Authentication routes: /auth/register, /auth/login, /auth/logout, /auth/me,
 /auth/users (list/update/delete)
 """
-from fastapi import APIRouter, Depends, Query, Request
 import uuid
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.auth import service
-from app.auth.dependencies import get_current_user
+from app.auth.dependencies import get_current_user, require_admin
 from app.database.postgres import get_db
 from app.models.database_models import UserProfile
 from app.models.schemas import (
     APIResponse,
+    ChangePasswordRequest,
     LoginRequest,
     LoginResponse,
     RegisterRequest,
@@ -60,8 +60,23 @@ def me(current_user: UserProfile = Depends(get_current_user)):
     return success_response(message="Current user fetched", data=data.model_dump(mode="json"))
 
 
+@router.post("/change-password", response_model=APIResponse)
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: UserProfile = Depends(get_current_user),
+):
+    service.change_password(db, current_user, payload)
+    return success_response(
+        message="Password changed successfully. Please log in again with your new password."
+    )
+
+
 @router.get("/users", response_model=APIResponse)
 def list_users(
+    # Results are scoped to the caller's role (see service.list_users):
+    # admins see everyone, managers see managers/users only, plain users
+    # only see themselves.
     include_inactive: bool = Query(
         default=False,
         description="If true, also include soft-deleted/deactivated (is_active=false) employees.",
@@ -69,7 +84,7 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: UserProfile = Depends(get_current_user),
 ):
-    users = service.list_users(db, include_inactive=include_inactive)
+    users = service.list_users(db, current_user, include_inactive=include_inactive)
     data = [UserProfileOut.model_validate(user).model_dump(mode="json") for user in users]
     return success_response(message="Users fetched", data=data)
 
@@ -79,7 +94,7 @@ def update_user(
     user_id: uuid.UUID,
     payload: UpdateUserRequest,
     db: Session = Depends(get_db),
-    current_user: UserProfile = Depends(get_current_user),
+    current_user: UserProfile = Depends(require_admin),
 ):
     profile = service.update_user(db, user_id, payload)
     data = UserProfileOut.model_validate(profile)
@@ -90,7 +105,7 @@ def update_user(
 def delete_user(
     user_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: UserProfile = Depends(get_current_user),
+    current_user: UserProfile = Depends(require_admin),
 ):
     service.delete_user(db, user_id)
     return success_response(message="User deactivated")

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.security import TokenError, decode_access_token, get_user_id_from_payload
 from app.database.postgres import get_db
-from app.models.database_models import UserProfile
+from app.models.database_models import DashboardSession, UserProfile
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -52,6 +52,25 @@ def get_current_user(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token subject is not a valid user id.")
 
+    # The token carries the session that minted it. If that session has been
+    # logged out (is_active=False), the token is dead even if it hasn't
+    # technically expired yet — this is what makes /auth/logout actually
+    # revoke access instead of being purely cosmetic.
+    session_id_str = payload.get("sid")
+    if session_id_str:
+        try:
+            session_id = uuid.UUID(session_id_str)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token session is not valid.")
+
+        session = db.query(DashboardSession).filter(DashboardSession.id == session_id).first()
+        if session is None or not session.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session has been logged out. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     profile = db.query(UserProfile).filter(UserProfile.id == user_id).first()
     if profile is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No user found for this token.")
@@ -60,3 +79,16 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This account has been deactivated.")
 
     return profile
+
+
+def require_admin(current_user: UserProfile = Depends(get_current_user)) -> UserProfile:
+    """
+    Dependency for admin-only routes (listing/updating/deactivating other
+    users). Stack this on top of get_current_user rather than replacing it.
+    """
+    if (current_user.role or "").strip().lower() != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can change a user's role or deactivate an account.",
+        )
+    return current_user

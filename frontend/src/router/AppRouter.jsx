@@ -16,6 +16,7 @@ import GlobalSearchPage from "../features/global-search/pages/GlobalSearchPage.j
 import SettingsPage from "../features/settings/pages/SettingsPage.jsx";
 import DashboardLayout from "../layouts/DashboardLayout.jsx";
 import ProtectedRoute from "./ProtectedRoute.jsx";
+import RequireRole from "./RequireRole.jsx";
 import TopicDetailPage from "../features/topics/pages/TopicDetailPage.jsx";
 
 export default function AppRouter() {
@@ -45,7 +46,14 @@ export default function AppRouter() {
         <Route path="/storage-explorer" element={<StorageExplorerPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/search" element={<GlobalSearchPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route
+          path="/settings"
+          element={
+            <RequireRole roles={["admin", "manager"]}>
+              <SettingsPage />
+            </RequireRole>
+          }
+        />
       </Route>
 
       <Route path="/" element={<Navigate to="/login" replace />} />

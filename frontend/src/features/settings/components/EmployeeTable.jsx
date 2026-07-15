@@ -11,6 +11,7 @@ export default function EmployeeTable({
   onEdit,
   onDelete,
   onToggleStatus,
+  canManage = true,
 }) {
   const columns = [
     {
@@ -39,7 +40,13 @@ export default function EmployeeTable({
       sortable: true,
       render: (row) => <StatusBadge status={row.status} />,
     },
-    {
+  ];
+
+  // Edit/deactivate/delete are admin-only (backend also enforces this via
+  // require_admin), so managers and users get a read-only table instead of
+  // buttons that would just 403.
+  if (canManage) {
+    columns.push({
       key: "actions",
       label: "",
       align: "right",
@@ -74,8 +81,8 @@ export default function EmployeeTable({
           />
         </div>
       ),
-    },
-  ];
+    });
+  }
 
   return (
     <DataTable
