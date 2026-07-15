@@ -1,16 +1,18 @@
 // src/layouts/Navbar/UserMenu.jsx
-// Placeholder for UserMenu — implement component/logic here.
 
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, UserCircle, Settings, LogOut } from "lucide-react";
+import { ChevronDown, UserCircle, KeyRound, LogOut } from "lucide-react";
 import UserAvatar from "../../components/ui/UserAvatar.jsx";
+import ModalDialog from "../../components/ui/ModalDialog.jsx";
+import ChangePasswordSection from "../../features/settings/components/ChangePasswordSection.jsx";
 import { useAuth } from "../../features/auth/hooks/useAuth.js";
 
 export default function UserMenu() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const ref = useRef(null);
 
   useEffect(() => {
@@ -57,9 +59,16 @@ export default function UserMenu() {
             <UserCircle className="w-4 h-4 text-slate-400" />
             View profile
           </button>
-          <button className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50">
-            <Settings className="w-4 h-4 text-slate-400" />
-            Settings
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              setPasswordModalOpen(true);
+            }}
+            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            <KeyRound className="w-4 h-4 text-slate-400" />
+            Reset Password
           </button>
           <button
             onClick={handleLogout}
@@ -70,6 +79,15 @@ export default function UserMenu() {
           </button>
         </div>
       )}
+
+      <ModalDialog
+        open={passwordModalOpen}
+        onClose={() => setPasswordModalOpen(false)}
+        title="Reset Password"
+        maxWidth="md"
+      >
+        <ChangePasswordSection bare />
+      </ModalDialog>
     </div>
   );
 }

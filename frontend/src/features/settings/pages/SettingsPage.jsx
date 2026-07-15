@@ -1,7 +1,17 @@
+import { Navigate } from "react-router-dom";
 import EmployeeManagementSection from "../components/EmployeeManagementSection.jsx";
-import ChangePasswordSection from "../components/ChangePasswordSection.jsx";
+import { useAuth } from "../../auth/hooks/useAuth.js";
 
 export default function SettingsPage() {
+  const { user } = useAuth();
+
+  // Settings is admin/manager only — the Settings nav item is already
+  // hidden in the sidebar for "user" accounts, but guard the route itself
+  // too in case someone navigates here directly by URL.
+  if (user?.role !== "admin" && user?.role !== "manager") {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <div>
@@ -11,7 +21,6 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <ChangePasswordSection />
       <EmployeeManagementSection />
     </div>
   );
