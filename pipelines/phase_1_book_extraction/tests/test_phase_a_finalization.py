@@ -228,27 +228,39 @@ def test_chapter_slug_is_computed_after_recovery_not_before():
 # Concept registry deduplication
 # ---------------------------------------------------------------------------
 
-def test_concept_registry_keys_on_lowercased_name_in_pipeline_source():
+def test_concept_registry_keys_on_slugify_in_pipeline_source():
     """Regression guard for the "Single Owner Principle" fix described in
-    pipeline.py: the concept registry must be keyed by name.lower(), not by
-    raw name or by (name, topic) -- otherwise the same concept mentioned in
-    two topics with different casing/whitespace collides on `id` (make_id
-    hashes chapter+name) while producing two separate registry records that
-    disagree on `topic`."""
+    pipeline.py, and for the DUPLICATE-ID INVESTIGATION FIX in the same
+    comment block: the concept registry must be keyed by slugify(name) --
+    the SAME normalization make_id()/make_urn() themselves use for this
+    object -- not by a weaker, independently-chosen one like
+    name.lower(). name.lower() alone only folds case; it does not fold
+    punctuation/whitespace the way slugify() (and therefore the canonical
+    id itself) does, so two name spellings that differ only in
+    punctuation/whitespace (e.g. "Science vs Art" vs "Science vs. Art")
+    used to get DIFFERENT name.lower() dedup keys -- so this dict happily
+    created two separate concept_registry records -- while colliding on
+    the IDENTICAL make_id()/make_urn() id/urn, which populate_registries()
+    -> CanonicalRegistry.insert() then rejects with DuplicateIdError. Using
+    slugify() for the dedup key closes that gap: any two spellings that
+    would collide on id also collide on this key, and are correctly
+    merged into one record before registry insertion ever runs."""
     source = inspect.getsource(pipeline.process_chapter)
-    assert "key = name.lower()" in source
+    assert "key = slugify(name)" in source
     assert 'existing = concept_registry.get(key)' in source
     # the merge branch: a second mention of an already-registered concept
     # must extend `topics`, not create a second record.
     assert 'existing["topics"].append(t.id)' in source
 
 
-def test_make_id_and_make_urn_are_case_insensitive_via_slugify():
+def test_make_id_and_make_urn_collapse_case_and_punctuation_via_slugify():
     """The property the dedup key relies on: slugify() (used inside both
-    make_id and make_urn) lowercases its input, so "Photosynthesis" and
-    "photosynthesis" -- the two spellings that must collapse into one
-    concept registry entry -- produce the SAME id/urn once resolved, and
-    are therefore safe to treat as the same concept."""
+    make_id and make_urn) lowercases its input AND collapses every
+    non-letter/mark/number character (spaces, periods, ...) to a single
+    '-'. So "Photosynthesis"/"photosynthesis" (case only) AND "Science vs
+    Art"/"Science vs. Art" (case + punctuation) each produce the SAME
+    id/urn once resolved -- both pairs must therefore be treated as the
+    same concept by the dedup key, not just the case-only pair."""
     id_a = make_id("Some Chapter", "concept", "Photosynthesis")
     id_b = make_id("Some Chapter", "concept", "photosynthesis")
     assert id_a == id_b
@@ -257,17 +269,24 @@ def test_make_id_and_make_urn_are_case_insensitive_via_slugify():
     urn_b = make_urn("book:chapter", "concept", "photosynthesis")
     assert urn_a == urn_b
 
+    # punctuation/whitespace-only variant -- the case that used to slip
+    # past a name.lower()-keyed dedup and surface as DuplicateIdError.
+    id_c = make_id("Nature and Significance of Management", "concept", "Science vs Art")
+    id_d = make_id("Nature and Significance of Management", "concept", "Science vs. Art")
+    assert id_c == id_d
+
 
 def test_concept_registry_dedup_behavior_directly():
     """Behavioral check of the exact dedup algorithm pipeline.py uses
     (mirrors the loop body at the concept_registry site in
     pipeline.process_chapter): two topics mentioning the same concept name
-    in different casing must collapse into ONE registry record whose
-    `topics` list contains both topic ids -- never two colliding records."""
+    -- whether they differ only in casing or only in punctuation/
+    whitespace -- must collapse into ONE registry record whose `topics`
+    list contains both topic ids, never two colliding records."""
     concept_registry = {}
 
     def register_mention(name, topic_id):
-        key = name.strip().lower()
+        key = slugify(name)
         existing = concept_registry.get(key)
         if existing is None:
             concept_registry[key] = {
@@ -283,8 +302,35 @@ def test_concept_registry_dedup_behavior_directly():
     register_mention("Respiration", "t2")
 
     assert len(concept_registry) == 2
-    photo = concept_registry["photosynthesis"]
+    photo = concept_registry[slugify("Photosynthesis")]
     assert photo["topics"] == ["t1", "t2"]
+
+
+def test_concept_registry_dedup_collapses_punctuation_variant():
+    """The exact upstream bug behind the reported DuplicateIdError: two
+    topics mention the same concept with only a punctuation/whitespace
+    difference ("Science vs Art" vs "Science vs. Art"). Both must resolve
+    to ONE concept_registry record (never two records sharing one id)."""
+    concept_registry = {}
+
+    def register_mention(name, topic_id):
+        key = slugify(name)
+        existing = concept_registry.get(key)
+        if existing is None:
+            concept_registry[key] = {
+                "id": make_id("Nature and Significance of Management", "concept", name),
+                "name": name.strip(),
+                "topics": [topic_id],
+            }
+        elif topic_id not in existing["topics"]:
+            existing["topics"].append(topic_id)
+
+    register_mention("Science vs Art", "t1")
+    register_mention("Science vs. Art", "t2")
+
+    assert len(concept_registry) == 1
+    only = next(iter(concept_registry.values()))
+    assert only["topics"] == ["t1", "t2"]
 
 
 # ---------------------------------------------------------------------------

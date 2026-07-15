@@ -326,6 +326,49 @@ def process_recover_chapter_title(doc: fitz.Document, page_hint: int, candidate_
     )
 
 
+def process_recover_book_cover_metadata(doc: fitz.Document, page: int, subject: str,
+                                         ocr_title_hint: str = "") -> Dict[str, Any]:
+    """Recovers a book's cover title and/or class marking when pdf_parser's
+    deterministic path (parse_book_title_and_class -> _ocr_recover_title /
+    _ocr_recover_class) hit the same legacy-non-Unicode-font wall: the raw
+    text layer is glyph-code noise, and plain Tesseract OCR either isn't
+    available or didn't pass the script-usability check either (see
+    pdf_parser.py's "OCR title recovery ... produced text that didn't pass
+    the script-usability check" / "Prelims class marking could not be
+    recovered via OCR" warnings). Same underlying fix as
+    process_recover_heading for section headings: render the page and let
+    the VLM read the glyphs directly, using whatever OCR text was
+    recovered for the title -- even a low-confidence/partial read -- as a
+    hint rather than as ground truth.
+
+    Deliberately a FULL-page render (like process_recover_chapter_title),
+    not a tight title-line crop: the class marking (e.g. "कक्षा 12 के लिए
+    हिंदी...") is a separate line, well outside the title line's own
+    bbox, and a tight title-only crop simply never shows it to the model
+    at all. One full-page image lets a single VLM call recover both
+    fields together instead of needing two separate calls/crops.
+
+    Only ever asks for whichever field(s) the caller actually still needs
+    (see pdf_parser.needs_vlm_cover_metadata_recovery /
+    BookContext.book_title_needs_recovery / .klass_needs_recovery) --
+    callers should still only trust/apply the field(s) they asked for.
+
+    Callers should only invoke this once the VLM is loaded (i.e. from
+    pipeline.py, after Qwen2.5-VL preload) -- pdf_parser.load_book_context()
+    runs earlier, during the purely-deterministic prelims pass, and stays
+    VLM-free by design (see semantic_processor.py's module docstring)."""
+    page_img = render_full_page(doc, min(max(page, 0), doc.page_count - 1), dpi=200)
+    return _run_task(
+        "recover_book_cover_metadata",
+        {
+            "subject": subject,
+            "ocr_title_hint": ocr_title_hint or "(no usable OCR read)",
+        },
+        images=[page_img],
+    )
+
+
+
 def process_recover_heading(doc: fitz.Document, page: int, bbox, expected_level: int,
                              ocr_text_region: str, nearby_headings: List[str],
                              chapter_title: str) -> Dict[str, Any]:

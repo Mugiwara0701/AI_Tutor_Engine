@@ -351,3 +351,106 @@ def test_detect_chapter_title_unaffected_for_normal_titles():
     body_size = 10.0
     lines = [_line("Water Resources", 22.0, y=10.0, bold=True)]
     assert pdf_parser.detect_chapter_title(lines, body_size, repeated=set()) == "Water Resources"
+
+
+# ---------------------------------------------------------------------------
+# 7. Chapter Metadata regression (Part I priority): match_chapter_by_number()
+#    must use chapter_order as a POSITIONAL INDEX into toc["chapters"] (as
+#    its own docstring has always said it does), never as an equality check
+#    against each entry's printed `number` field. The two only coincide for
+#    single-part books; NCERT "Part II"/"Part III" books restart their own
+#    chapter-PDF filename counter at 01 while the TOC's printed chapter
+#    number continues from the previous part, which the old equality check
+#    could never match -- silently discarding the correct TOC entry and
+#    falling all the way through to "Actual Chapter Number: <per-part
+#    position>" / "untitled-chapter" whenever the title-fuzzy fallback also
+#    missed.
+# ---------------------------------------------------------------------------
+
+def _toc(*chapters):
+    """Build a minimal toc dict: chapters = [(number, title), ...], in the
+    same printed/physical order parse_toc() would produce from a real
+    Contents page."""
+    return {"chapters": [{"number": n, "title": t, "page_start": None, "topics": []}
+                          for n, t in chapters],
+            "front_back_matter": []}
+
+
+def test_match_chapter_by_number_continues_across_part_ii():
+    # Business Studies Part II: file position 1 (chapter_order_fallback,
+    # from chapter_number_from_filename's per-part "...01.pdf" suffix) must
+    # resolve to the TOC's first-listed chapter even though that chapter is
+    # PRINTED as chapter 9, not 1 -- position in the part's own TOC, not
+    # equality against the printed number, is what recovers it.
+    toc = _toc((9, "Financial Management"), (10, "Financial Markets"),
+                (11, "Marketing Management"))
+    match = pdf_parser.match_chapter_by_number(1, toc)
+    assert match is not None
+    assert match["number"] == 9
+    assert match["title"] == "Financial Management"
+
+
+def test_match_chapter_by_number_second_chapter_in_part_ii():
+    toc = _toc((9, "Financial Management"), (10, "Financial Markets"),
+                (11, "Marketing Management"))
+    match = pdf_parser.match_chapter_by_number(2, toc)
+    assert match["number"] == 10
+    assert match["title"] == "Financial Markets"
+
+
+def test_match_chapter_by_number_single_part_book_unchanged():
+    # Single-part books (position == printed number) must resolve exactly
+    # as before this fix -- byte-for-byte unchanged behavior.
+    toc = _toc((1, "Chemical Reactions"), (2, "Acids, Bases and Salts"))
+    assert pdf_parser.match_chapter_by_number(1, toc)["title"] == "Chemical Reactions"
+    assert pdf_parser.match_chapter_by_number(2, toc)["title"] == "Acids, Bases and Salts"
+
+
+def test_match_chapter_by_number_out_of_range_returns_none():
+    toc = _toc((9, "Financial Management"), (10, "Financial Markets"))
+    assert pdf_parser.match_chapter_by_number(3, toc) is None
+    assert pdf_parser.match_chapter_by_number(0, toc) is None
+
+
+def test_match_chapter_by_number_no_toc_returns_none():
+    assert pdf_parser.match_chapter_by_number(1, None) is None
+    assert pdf_parser.match_chapter_by_number(1, {"chapters": []}) is None
+
+
+def test_parse_chapter_pdf_part_ii_continuation_end_to_end(tmp_path, monkeypatch):
+    """Full parse_chapter_pdf() path for a Part II chapter: filename-derived
+    chapter_order_fallback is 1 (per-part position), but the book's TOC
+    (loaded from Part II's own prelims file) prints this chapter as 9 --
+    the final structure must carry the TOC's printed number/title, not the
+    per-part file position, and toc_matched must be True."""
+    toc = _toc((9, "Financial Management"), (10, "Financial Markets"))
+    ctx = pdf_parser.BookContext(book_title="Business Studies", subject="Business Studies",
+                                  klass="12", toc=toc, part="Part II", language="en")
+
+    def _line(text, size, page=0, bold=False, y=0.0):
+        return pdf_parser.Line(text=text, size=size, max_size=size, bold=bold,
+                                font="F", page=page, y=y, page_height=800.0)
+
+    lines = [_line("Financial Management", 24.0, y=10.0, bold=True)]
+
+    monkeypatch.setattr(pdf_parser, "extract_lines", lambda p: lines)
+    monkeypatch.setattr(pdf_parser, "dedupe_decorative_duplicates", lambda ls: ls)
+    monkeypatch.setattr(pdf_parser, "merge_wrapped_lines", lambda ls, bs: ls)
+    monkeypatch.setattr(pdf_parser, "find_repeated_lines", lambda ls: set())
+
+    class _FakePage:
+        rect = type("R", (), {"width": 600.0, "height": 800.0})()
+
+    class _FakeDoc:
+        page_count = 5
+        metadata = {}
+        def __getitem__(self, i): return _FakePage()
+        def close(self): pass
+
+    monkeypatch.setattr(pdf_parser.fitz, "open", lambda p: _FakeDoc())
+
+    structure = pdf_parser.parse_chapter_pdf("besc209.pdf", ctx, chapter_order_fallback=1)
+
+    assert structure.chapter_number == 9
+    assert structure.chapter_title == "Financial Management"
+    assert structure.toc_matched is True

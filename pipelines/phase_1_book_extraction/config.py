@@ -112,3 +112,15 @@ DEFAULT_LANGUAGE = os.environ.get("NCERT_DEFAULT_LANGUAGE")
 # MIGRATIONS.md for the full migration note and schemas/chapter_schema.py's
 # TopicNode.concepts docstring for the field-level detail.
 SCHEMA_VERSION = "2.0.0"
+
+# --------------------------------------------------------------------------
+# Milestone T1: structural (keyword-independent) TOC page detection
+# --------------------------------------------------------------------------
+# Temporary runtime diagnostics for modules/pdf_parser.py's TOC-page
+# detector (find_toc_lines / _classify_pages_for_toc): logs, per page in
+# the prelims/TOC file, the confidence score, which structural signals
+# fired, and why the page was accepted or rejected as part of the TOC.
+# Meant to be easy to disable once cross-book validation (English, Hindi,
+# Sanskrit, keyword-less layouts, ...) is complete -- flip to "0" or unset
+# NCERT_TOC_DIAGNOSTICS to silence it without touching detector code.
+TOC_DETECTION_DIAGNOSTICS = os.environ.get("NCERT_TOC_DIAGNOSTICS", "1") == "1"

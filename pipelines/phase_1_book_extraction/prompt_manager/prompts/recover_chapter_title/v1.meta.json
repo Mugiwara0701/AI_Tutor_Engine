@@ -1,7 +1,7 @@
 {
   "version": "v1",
   "author": "prompt_manager_bootstrap",
-  "created_date": "2026-07-05",
-  "modified_date": "2026-07-05",
-  "description": "Fallback recovery of a chapter title when deterministic font-based detection confidence is low."
+  "created_date": "2026-07-15",
+  "modified_date": "2026-07-15",
+  "description": "VLM fallback recovery of a chapter's title when its opening page is set (in whole or in part) in a legacy non-Unicode font and both the raw text layer and plain Tesseract OCR fail. Replaces a previous file at this path that mistakenly contained the recover_book_cover_metadata prompt (asked for book_title/klass instead of chapter_title, and referenced ocr_title_hint instead of the candidate_titles/ocr_text_first_pages variables this task actually supplies), which made the output_contract's required chapter_title field impossible to satisfy."
 }

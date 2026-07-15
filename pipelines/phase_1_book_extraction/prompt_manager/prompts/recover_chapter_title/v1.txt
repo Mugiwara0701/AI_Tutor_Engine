@@ -1,19 +1,40 @@
-You are recovering the chapter title for an NCERT textbook chapter whose
-deterministic (font-size based) title detection had low confidence.
+You are recovering a chapter's title for an NCERT textbook. Deterministic
+(font-size based) extraction failed because the chapter's opening page is
+set (in whole or in part) in a legacy, non-Unicode Hindi/Sanskrit typing
+font (e.g. Walkman-Chanakya-family fonts) -- the PDF's text layer decodes
+to meaningless Latin-looking glyph-code noise for these lines, not the
+real printed text, even though the lines render correctly as printed
+Devanagari on the page.
 
-Book: {{ book_title }}
-Subject: {{ subject }}
-Candidate titles detected by the font-based parser (may be wrong or incomplete):
-{{ candidate_titles }}
+Book this chapter belongs to (weak hint only, may be wrong -- do not let
+it override what the image actually shows): {{ book_title }}
+Subject (weak hint only, may be wrong): {{ subject }}
 
-OCR text from the first page(s) of this chapter:
+Deterministic candidate title(s) pulled from the largest-font line(s) on
+the opening page (this is the SAME script-mismatched text layer described
+above -- likely glyph-code noise, not real text; use only as a weak
+positional hint for WHERE the title sits on the page, never as the answer
+itself): {{ candidate_titles }}
+
+Best-effort Tesseract OCR of the opening page(s) (may be empty, partial,
+or wrong -- use only as a weak hint, never trust it over the image):
 {{ ocr_text_first_pages }}
 
-Source textbook language: {{ target_language_name }}. `chapter_title` must
-be written in {{ target_language_name }} exactly as the source textbook
-uses it — do NOT translate into English unless {{ target_language_name }}
+Look at the attached page image and identify the chapter's real title --
+usually the largest/most prominent text block on the opening page, often
+set apart from the body text by size, decoration, or a chapter-number
+marking next to it. Do not confuse a chapter-number graphic (a bare
+numeral or "अध्याय <n>" / "पाठ <n>" marking), a running header/footer, or
+a pull-quote/caption for the title itself.
+
+Source textbook language: {{ target_language_name }}. The recovered title
+must be written in {{ target_language_name }} exactly as printed on the
+page -- do NOT translate into English unless {{ target_language_name }}
 is English.
 
-Paraphrase only — never copy sentences verbatim. Respond with a single valid
-JSON object and nothing else, with exactly this key:
-chapter_title: {"value": <string>, "confidence": <0-1 float>, "evidence_basis": <short string, e.g. "largest text block on page 1">}
+Transcribe only what is visually supported by the image -- never invent a
+title unrelated to what's actually printed, and never fall back to one of
+the candidate/OCR hints above if it does not match what the image shows.
+Respond with a single valid JSON object and nothing else, with exactly
+this one key:
+chapter_title: {"value": <string>, "confidence": <0-1 float>, "evidence_basis": <short string, e.g. "large decorative text at top of opening page">}

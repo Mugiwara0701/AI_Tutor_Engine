@@ -143,6 +143,24 @@ CONTRACTS: Dict[str, OutputContract] = {
         FieldSpec("numbering", required=False, is_evidence_triple=True),
     ]),
 
+    # Added alongside the book-title/class VLM-recovery fallback in
+    # pipeline.py (post Qwen2.5-VL preload) -- see
+    # semantic_processor.process_recover_book_cover_metadata() and
+    # task_registry.py's "recover_book_cover_metadata" entry. Both fields
+    # required: the prompt always asks for both book_title and klass in
+    # one call (one full-page render), even though a given book may only
+    # actually need one of them recovered -- pipeline.py itself decides,
+    # per BookContext.book_title_needs_recovery / .klass_needs_recovery,
+    # which field(s) it actually applies from the result. klass's `value`
+    # is the literal string "unknown" (never a missing/null field) when
+    # the model genuinely can't find a class marking on the page, per the
+    # prompt's own instruction -- so `required=True` here is correct and
+    # klass is still validated as a normal evidence triple either way.
+    "recover_book_cover_metadata": OutputContract("recover_book_cover_metadata", [
+        FieldSpec("book_title", required=True, is_evidence_triple=True),
+        FieldSpec("klass", required=True, is_evidence_triple=True),
+    ]),
+
     "concept_extraction": OutputContract("concept_extraction", [
         FieldSpec("concepts", required=True, is_evidence_triple=False, is_list=True,
                    list_item_is_triple=False),

@@ -340,6 +340,53 @@ class TestDuplicateProtection:
         populate_registries(manager, definitions=[make_definition("d2", "Osmosis", page=99)])
         assert manager.get("definitions").size() == 2
 
+    def test_concept_registry_upstream_dedup_prevents_punctuation_variant_duplicate_id(self):
+        """Regression test for the reported bug: pipeline.process_chapter()'s
+        concept_registry loop must dedupe "Science vs Art" (topic 1) and
+        "Science vs. Art" (topic 2) -- a realistic same-concept VLM naming
+        difference -- into ONE concept object before it ever reaches
+        populate_registries(), because both names produce the SAME
+        make_id()/make_urn() canonical id/urn (slugify() folds the
+        period/whitespace difference away). Mirrors pipeline.py's actual
+        (post-fix) dedup loop body -- see test_phase_a_finalization.py's
+        test_concept_registry_dedup_collapses_punctuation_variant for the
+        matching pure dedup-logic check. This is the exact case that used
+        to reach populate_registries() as two distinct concept dicts
+        sharing one id and raise DuplicateIdError, aborting the chapter
+        before the Chapter JSON write / OneDrive upload -- registry-layer
+        duplicate protection (test_duplicate_concept_id_across_populate_calls_raises
+        above) is untouched and still correctly rejects a genuine
+        duplicate id."""
+        from modules.pdf_parser import make_id, slugify
+
+        chapter_title = "Nature and Significance of Management"
+        concept_registry: dict = {}
+
+        def register_mention(name, topic_id):
+            key = slugify(name)
+            existing = concept_registry.get(key)
+            if existing is None:
+                concept_registry[key] = make_concept(
+                    make_id(chapter_title, "concept", name), name.strip(),
+                    urn=f"urn:concept:{slugify(name)}", topics=[topic_id],
+                )
+            elif topic_id not in existing["topics"]:
+                existing["topics"].append(topic_id)
+
+        register_mention("Science vs Art", "topic-1")
+        register_mention("Science vs. Art", "topic-2")
+
+        assert len(concept_registry) == 1
+        all_concepts = list(concept_registry.values())
+
+        manager = create_registry_manager()
+        # Must not raise: the dedup above already collapsed both mentions
+        # into a single concept object with a single canonical id.
+        populate_registries(manager, concepts=all_concepts)
+        assert manager.get("concepts").size() == 1
+        only = manager.get("concepts").lookup(id=all_concepts[0]["id"])
+        assert only["topics"] == ["topic-1", "topic-2"]
+
 
 # --------------------------------------------------------------------------
 # Registry lookups
