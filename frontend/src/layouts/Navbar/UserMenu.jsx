@@ -3,23 +3,15 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, UserCircle, Settings, LogOut, KeyRound } from "lucide-react";
+import { ChevronDown, UserCircle, Settings, LogOut } from "lucide-react";
 import UserAvatar from "../../components/ui/UserAvatar.jsx";
 import { useAuth } from "../../features/auth/hooks/useAuth.js";
-import ResetPasswordModal from "./ResetPasswordModal.jsx";
 
 export default function UserMenu() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
-  const [resetPasswordOpen, setResetPasswordOpen] = useState(false);
   const ref = useRef(null);
-  // Settings (Employee/User Management) is admin/manager only - see
-  // RequireRole on the /settings route. Hide the links here too so a
-  // "user" doesn't click through to a page that just bounces them back.
-  const canAccessSettings = ["admin", "manager"].includes(
-    (user?.role || "").trim().toLowerCase(),
-  );
 
   useEffect(() => {
     function handleClickOutside(e) {
@@ -61,39 +53,13 @@ export default function UserMenu() {
               {user?.email ?? "Not signed in"}
             </p>
           </div>
-          {canAccessSettings && (
-            <button
-              onClick={() => {
-                setOpen(false);
-                navigate("/settings");
-              }}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
-            >
-              <UserCircle className="w-4 h-4 text-slate-400" />
-              View profile
-            </button>
-          )}
-          {canAccessSettings && (
-            <button
-              onClick={() => {
-                setOpen(false);
-                navigate("/settings");
-              }}
-              className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
-            >
-              <Settings className="w-4 h-4 text-slate-400" />
-              Settings
-            </button>
-          )}
-          <button
-            onClick={() => {
-              setOpen(false);
-              setResetPasswordOpen(true);
-            }}
-            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            <KeyRound className="w-4 h-4 text-slate-400" />
-            Reset Password
+          <button className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50">
+            <UserCircle className="w-4 h-4 text-slate-400" />
+            View profile
+          </button>
+          <button className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-slate-600 hover:bg-slate-50">
+            <Settings className="w-4 h-4 text-slate-400" />
+            Settings
           </button>
           <button
             onClick={handleLogout}
@@ -104,11 +70,6 @@ export default function UserMenu() {
           </button>
         </div>
       )}
-
-      <ResetPasswordModal
-        open={resetPasswordOpen}
-        onClose={() => setResetPasswordOpen(false)}
-      />
     </div>
   );
 }
