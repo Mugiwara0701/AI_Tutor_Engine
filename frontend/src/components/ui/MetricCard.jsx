@@ -19,7 +19,6 @@ export default function MetricCard({
   label,
   value,
   trend,
-  trendLabel,
   accent = "primary",
   className,
 }) {
@@ -49,26 +48,21 @@ export default function MetricCard({
         )}
       </div>
 
-      <div className="flex items-end justify-between gap-2">
+      <div className="flex items-end justify-between">
         <span className="text-2xl font-semibold text-slate-900">{value}</span>
         {trend != null && (
           <span
             className={cn(
-              "flex items-center gap-1 text-xs font-medium shrink-0",
+              "flex items-center gap-0.5 text-xs font-medium",
               isPositive ? "text-green-600" : "text-red-600",
             )}
           >
-            <span className="flex items-center gap-0.5">
-              {isPositive ? (
-                <TrendingUp className="w-3.5 h-3.5" />
-              ) : (
-                <TrendingDown className="w-3.5 h-3.5" />
-              )}
-              {Math.abs(trend)}%
-            </span>
-            {trendLabel && (
-              <span className="text-slate-400 font-normal">{trendLabel}</span>
+            {isPositive ? (
+              <TrendingUp className="w-3.5 h-3.5" />
+            ) : (
+              <TrendingDown className="w-3.5 h-3.5" />
             )}
+            {Math.abs(trend)}%
           </span>
         )}
       </div>

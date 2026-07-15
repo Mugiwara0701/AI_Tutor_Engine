@@ -7,12 +7,6 @@ import { SIDEBAR_NAV } from "../Sidebar/sidebarConfig.js";
 function findBreadcrumbTrail(pathname) {
   for (const item of SIDEBAR_NAV) {
     if (item.path === pathname) {
-      if (item.breadcrumbChild) {
-        return [
-          { label: item.label, path: item.path },
-          { label: item.breadcrumbChild, path: item.path },
-        ];
-      }
       return [{ label: item.label, path: item.path }];
     }
 
@@ -53,10 +47,7 @@ export default function BreadcrumbNav() {
       {trail.map((crumb, i) => {
         const isLast = i === trail.length - 1;
         return (
-          <span
-            key={`${crumb.path}-${i}`}
-            className="flex items-center gap-1.5 min-w-0"
-          >
+          <span key={crumb.path} className="flex items-center gap-1.5 min-w-0">
             {i > 0 && (
               <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
             )}

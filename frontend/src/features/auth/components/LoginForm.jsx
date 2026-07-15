@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Mail, Lock, Eye, EyeOff, User } from "lucide-react";
+import { Mail, User } from "lucide-react";
 import { useAuth } from "../hooks/useAuth.js";
-import { cn } from "../../../utils/classNames.js";
+import FormInput from "../../../components/ui/FormInput.jsx";
+import PasswordInput from "../../../components/ui/PasswordInput.jsx";
+import PrimaryButton from "../../../components/ui/PrimaryButton.jsx";
 import SocialAuthButtons from "./SocialAuthButtons.jsx";
 
 export default function LoginForm({ mode = "login" }) {
@@ -10,7 +12,6 @@ export default function LoginForm({ mode = "login" }) {
   const { login, signUp, isLoading, error } = useAuth();
   const navigate = useNavigate();
 
-  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [formError, setFormError] = useState(null);
   const [form, setForm] = useState({ name: "", email: "", password: "" });
@@ -35,162 +36,100 @@ export default function LoginForm({ mode = "login" }) {
 
   return (
     <div>
-      <div className="flex items-center justify-center gap-2 mb-6">
-        <div className="relative w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-          <span className="text-white font-bold text-base">M</span>
-        </div>
-        <span className="text-lg font-bold text-slate-900">AI Tutor</span>
+      <div className="flex flex-col items-center text-center mb-7 ">
+        <h2 className="text-[24px] font-bold text-slate-900 mb-1.5">
+          {isSignUp ? "Create an account" : "Welcome back"}
+        </h2>
+        <p className="text-sm text-slate-500">
+          Sign in to continue to your workspace
+        </p>
       </div>
 
-      <h2 className="text-[26px] font-bold text-slate-900 text-center mb-1.5">
-        {isSignUp ? "Create an account" : "Welcome back"}
-      </h2>
-      <p className="text-sm text-slate-400 text-center mb-8">
-        {isSignUp
-          ? "Start your AI Tutor journey today."
-          : "Sign in to continue your AI Tutor journey."}
-      </p>
-
       {(formError || error) && (
-        <div className="mb-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+        <div
+          role="alert"
+          className="mb-5 text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3.5 py-2.5"
+        >
           {formError || error}
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
         {isSignUp && (
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
-              Full name
-            </label>
-            <div className="relative">
-              <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                required
-                value={form.name}
-                onChange={handleChange("name")}
-                placeholder="Enter your full name"
-                className="w-full pl-10 pr-3 py-3 rounded-lg border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-              />
-            </div>
-          </div>
+          <FormInput
+            id="auth-name"
+            label="Full name"
+            icon={User}
+            type="text"
+            autoComplete="name"
+            required
+            value={form.name}
+            onChange={handleChange("name")}
+            placeholder="Enter your full name"
+          />
         )}
 
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            Email address
-          </label>
-          <div className="relative">
-            <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="email"
-              required
-              value={form.email}
-              onChange={handleChange("email")}
-              placeholder="Enter your email"
-              className="w-full pl-10 pr-3 py-3 rounded-lg border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-            />
-          </div>
-        </div>
+        <FormInput
+          id="auth-email"
+          label="Email address"
+          icon={Mail}
+          type="email"
+          autoComplete="email"
+          required
+          value={form.email}
+          onChange={handleChange("email")}
+          placeholder="Enter your email"
+        />
 
         <div>
-          <div className="flex items-center justify-between mb-2">
-            <label className="block text-sm font-medium text-slate-700">
+          <div className="flex items-center justify-between mb-1.5">
+            <label
+              htmlFor="auth-password"
+              className="text-sm font-medium text-slate-700"
+            >
               Password
             </label>
             {!isSignUp && (
               <Link
                 to="#"
-                className="text-sm font-medium text-primary hover:underline"
+                className="text-sm font-medium text-primary hover:text-primaryHover hover:underline"
               >
                 Forgot password?
               </Link>
             )}
           </div>
-          <div className="relative">
-            <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type={showPassword ? "text" : "password"}
-              required
-              value={form.password}
-              onChange={handleChange("password")}
-              placeholder="Enter your password"
-              className="w-full pl-10 pr-10 py-3 rounded-lg border border-slate-200 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((v) => !v)}
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? (
-                <EyeOff className="w-4 h-4" />
-              ) : (
-                <Eye className="w-4 h-4" />
-              )}
-            </button>
-          </div>
+          <PasswordInput
+            id="auth-password"
+            label={null}
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+            required
+            value={form.password}
+            onChange={handleChange("password")}
+            placeholder="Enter your password"
+          />
         </div>
 
         {!isSignUp && (
-          <label className="flex items-center gap-2 cursor-pointer select-none">
+          <label className="flex items-center gap-2.5 cursor-pointer select-none -mt-1">
             <input
               type="checkbox"
               checked={rememberMe}
               onChange={(e) => setRememberMe(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 accent-primary focus:ring-primary/30"
+              className="w-4 h-4 rounded border-slate-300 accent-primary focus:ring-2 focus:ring-primary/30"
             />
             <span className="text-sm text-slate-600">Remember me</span>
           </label>
         )}
 
-        <button
+        <PrimaryButton
           type="submit"
-          disabled={isLoading}
-          className={cn(
-            "w-full py-3 rounded-lg bg-primary text-white text-[15px] font-semibold hover:bg-blue-700 transition-colors",
-            isLoading && "opacity-70 cursor-not-allowed",
-          )}
+          isLoading={isLoading}
+          loadingText="Please wait…"
+          className="w-full mt-1"
         >
-          {isLoading ? "Please wait…" : isSignUp ? "Create account" : "Sign In"}
-        </button>
+          {isSignUp ? "Create account" : "Sign in"}
+        </PrimaryButton>
       </form>
-
-      {!isSignUp && (
-        <>
-          <div className="flex items-center gap-3 my-6">
-            <div className="flex-1 h-px bg-slate-200" />
-            <span className="text-xs text-slate-400">or</span>
-            <div className="flex-1 h-px bg-slate-200" />
-          </div>
-          <SocialAuthButtons />
-        </>
-      )}
-
-      <p className="text-center text-sm text-slate-500 mt-6">
-        {isSignUp ? (
-          <>
-            Already have an account?{" "}
-            <Link
-              to="/login"
-              className="text-primary font-medium hover:underline"
-            >
-              Sign in
-            </Link>
-          </>
-        ) : (
-          <>
-            Don&apos;t have an account?{" "}
-            <Link
-              to="/signup"
-              className="text-primary font-medium hover:underline"
-            >
-              Create an account
-            </Link>
-          </>
-        )}
-      </p>
     </div>
   );
 }

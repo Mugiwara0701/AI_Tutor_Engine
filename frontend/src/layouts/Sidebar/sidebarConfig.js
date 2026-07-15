@@ -59,9 +59,6 @@ export const SIDEBAR_NAV = [
     label: "Ingestion",
     icon: UploadCloud,
     path: "/ingestion",
-    // Adds a second breadcrumb crumb ("Ingestion > Upload Books") without
-    // introducing an expandable sidebar sub-menu — see BreadcrumbNav.jsx.
-    breadcrumbChild: "Upload Books",
   },
   {
     key: "zip-manager",

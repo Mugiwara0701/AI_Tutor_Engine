@@ -23,3 +23,48 @@
     scrollbar-width: none;
   }
 }
+
+/* Login page background: slowly rotating gradient colours only.
+   No element rotates — only the --gradient-angle custom property
+   is animated, which shifts the conic-gradient's colour stops. */
+@property --gradient-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.login-background {
+  --gradient-angle: 0deg;
+  background:
+    radial-gradient(
+      circle at 15% 75%,
+      rgba(37, 99, 235, 0.18),
+      transparent 38%
+    ),
+    conic-gradient(
+      from var(--gradient-angle) at 25% 70%,
+      #020617,
+      #07152f,
+      #102a62,
+      #1d4ed8,
+      #102a62,
+      #07152f,
+      #020617
+    );
+  animation: rotate-gradient-colors 25s linear infinite;
+}
+
+@keyframes rotate-gradient-colors {
+  from {
+    --gradient-angle: 0deg;
+  }
+  to {
+    --gradient-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-background {
+    animation: none;
+  }
+}

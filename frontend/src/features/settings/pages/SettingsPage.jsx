@@ -1,4 +1,5 @@
 import EmployeeManagementSection from "../components/EmployeeManagementSection.jsx";
+import ChangePasswordSection from "../components/ChangePasswordSection.jsx";
 
 export default function SettingsPage() {
   return (
@@ -10,6 +11,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
+      <ChangePasswordSection />
       <EmployeeManagementSection />
     </div>
   );

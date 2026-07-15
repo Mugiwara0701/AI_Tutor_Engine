@@ -4,9 +4,13 @@ Pydantic schemas for request validation and response serialization.
 
 import uuid
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
+
+# The only roles this app understands. Kept in one place so the API schema
+# and the database constraint (see database_models.py) can't drift apart.
+VALID_ROLES = ("admin", "manager", "user")
 
 
 # ---------- Auth ----------
@@ -20,6 +24,19 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=10)
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_must_differ(cls, v, info):
+        current = info.data.get("current_password")
+        if current is not None and v == current:
+            raise ValueError("New password must be different from the current password.")
+        return v
 
 
 class TokenResponse(BaseModel):
@@ -56,8 +73,15 @@ class RegisterResponse(BaseModel):
 
 class UpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
-    role: Optional[str] = None
+    role: Optional[Literal["admin", "manager", "user"]] = None
     is_active: Optional[bool] = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def normalize_role(cls, v):
+        if v is None:
+            return v
+        return str(v).strip().lower()
 
 
 # ---------- Activity Logs ----------

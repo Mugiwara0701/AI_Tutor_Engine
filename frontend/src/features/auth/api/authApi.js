@@ -68,6 +68,20 @@ export async function fetchCurrentUser() {
 }
 
 /**
+ * Changes the current user's own password. Requires the current password
+ * for verification. On success the backend revokes all of this user's
+ * sessions (including the one making this call), so the caller should
+ * clear the stored token and send them back to login.
+ */
+export async function changePassword({ currentPassword, newPassword }) {
+  await apiRequest("/auth/change-password", {
+    method: "POST",
+    body: { current_password: currentPassword, new_password: newPassword },
+    auth: true,
+  });
+}
+
+/**
  * Best-effort logout call to the backend (ends the session record server
  * side). Callers should clear local token/state regardless of whether
  * this succeeds.

@@ -37,6 +37,27 @@ EXTRA_INDEX_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles (email);",
 ]
 
+# Postgres has no "ADD CONSTRAINT IF NOT EXISTS", so this is wrapped in a
+# guarded DO block: it's a no-op if the constraint is already there (e.g.
+# on a table created after CheckConstraint was added to the ORM model),
+# and adds it once for pre-existing tables that predate this change.
+# NOTE: if any existing rows already have a role outside
+# ('admin', 'manager', 'user'), this ALTER will fail — clean those up
+# first, e.g.: UPDATE user_profiles SET role = 'user' WHERE role NOT IN
+# ('admin', 'manager', 'user');
+ROLE_CHECK_CONSTRAINT_STATEMENT = """
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ck_user_profiles_role'
+    ) THEN
+        ALTER TABLE user_profiles
+            ADD CONSTRAINT ck_user_profiles_role
+            CHECK (role IN ('admin', 'manager', 'user'));
+    END IF;
+END $$;
+"""
+
 
 def create_tables() -> None:
     print("→ Checking database connection...")
@@ -52,6 +73,10 @@ def create_tables() -> None:
     with engine.begin() as conn:
         for stmt in EXTRA_INDEX_STATEMENTS:
             conn.execute(text(stmt))
+
+    print("→ Ensuring role check constraint exists...")
+    with engine.begin() as conn:
+        conn.execute(text(ROLE_CHECK_CONSTRAINT_STATEMENT))
 
     verify_tables()
 

@@ -11,6 +11,7 @@ import EmployeeFormModal from "./EmployeeFormModal.jsx";
 import EmployeeTable from "./EmployeeTable.jsx";
 import InlineAlert from "../../../components/shared/InlineAlert.jsx";
 import { registerUser } from "../../auth/api/authApi.js";
+import { updateUserRecord } from "../api/employeeApi.js";
 import { DEFAULT_EMPLOYEE_PASSWORD } from "../../../lib/constants.js";
 
 export default function EmployeeManagementSection() {
@@ -41,7 +42,7 @@ export default function EmployeeManagementSection() {
 
   const handleSubmit = async (form) => {
     if (editingEmployee) {
-      updateEmployee(editingEmployee.id, form);
+      await updateEmployee(editingEmployee.id, form);
       setAlert({
         type: "success",
         message: `${form.name}'s details were updated.`,
@@ -52,18 +53,33 @@ export default function EmployeeManagementSection() {
     }
 
     // Register the new employee against the real backend, using the same
-    // fixed default password for every account created here.
+    // fixed default password for every account created here. The backend
+    // always creates new accounts as role="user" / Active — it has no way
+    // to accept a role at signup, by design, so nobody can self-elevate
+    // through registration. If this admin picked a different role or
+    // status in the form, apply it now as a follow-up update using our
+    // own admin session.
     const registeredUser = await registerUser({
       name: form.name,
       email: form.userId,
       password: DEFAULT_EMPLOYEE_PASSWORD,
     });
 
+    let finalUser = registeredUser;
+    if (registeredUser?.id && (form.role !== "user" || form.status !== "Active")) {
+      finalUser = await updateUserRecord(registeredUser.id, {
+        role: form.role,
+        status: form.status,
+      });
+    }
+
     addEmployee({
-      name: registeredUser?.name ?? form.name,
+      id: registeredUser?.id,
+      name: finalUser?.name ?? form.name,
       userId: form.userId,
-      role: form.role,
-      status: form.status,
+      role: finalUser?.role ?? "user",
+      status: finalUser?.status ?? "Active",
+      createdOn: finalUser?.createdOn,
     });
     setAlert({
       type: "success",

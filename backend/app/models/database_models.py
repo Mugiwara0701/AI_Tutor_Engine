@@ -7,6 +7,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -35,6 +36,11 @@ class UserProfile(Base):
 
     sessions = relationship("DashboardSession", back_populates="user", cascade="all, delete-orphan")
     activity_logs = relationship("DashboardActivityLog", back_populates="user", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'manager', 'user')", name="ck_user_profiles_role"),
+    )
+
 
 
 class DashboardSession(Base):
