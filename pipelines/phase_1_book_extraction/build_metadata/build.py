@@ -41,7 +41,7 @@ JSON" treatment every earlier Phase B5/C4/D artifact already gets.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
@@ -159,6 +159,77 @@ def generate_graph_metadata(
 
 
 # --------------------------------------------------------------------------
+# DSTMetadata -- Milestone 5.2: read-only aggregation of the Document
+# Structure Tree's own already-computed artifact
+# --------------------------------------------------------------------------
+
+@dataclass
+class DSTMetadata:
+    """Aggregates the Document Structure Tree artifact Milestone 5.1
+    already produced this chapter (document_structure_tree/, DST's own
+    counterpart to Phase C's Knowledge Graph -- see that package's own
+    module docstring: "neither package imports from the other"). Same
+    "purely a data holder, all aggregation happens in
+    generate_dst_metadata() below" shape as CompilerMetadata/
+    GraphMetadata above, one artifact over.
+
+    The DST artifact (document_structure_tree.document_structure_tree.
+    DocumentStructureTree, schema §2.2) folds metadata, provenance, and
+    validation results into ONE value rather than the separate
+    manifest/statistics/readiness-report/build-summary objects Phase B/C
+    each produce -- so, unlike CompilerMetadata/GraphMetadata, this
+    block carries the DST's own `artifact_metadata`/`validation_metadata`
+    layers (schema §2.3/§2.5, already-serialized via their own
+    `to_json()`) directly, rather than a separate manifest dict.
+    `dst_chapter_fingerprint`/`final_dst_status` are still surfaced as
+    their own top-level fields, mirroring `compiler_fingerprint`/
+    `final_compiler_status` and `graph_fingerprint`/`final_graph_status`
+    above, so a consumer scanning BuildMetadata for "the fingerprint" or
+    "the status" of every Phase B/C/Milestone-5.1 artifact never needs to
+    know each artifact's own internal shape to find them."""
+
+    document_structure_tree_artifact_metadata: Optional[Dict[str, Any]]
+    document_structure_tree_validation_metadata: Optional[Dict[str, Any]]
+    dst_chapter_fingerprint: Optional[str]
+    dst_node_count: Optional[int]
+    final_dst_status: Optional[str]
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+def generate_dst_metadata(
+    *,
+    document_structure_tree_artifact_metadata: Optional[Dict[str, Any]] = None,
+    document_structure_tree_validation_metadata: Optional[Dict[str, Any]] = None,
+    dst_chapter_fingerprint: Optional[str] = None,
+    dst_node_count: Optional[int] = None,
+    final_dst_status: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Milestone 5.2: read-only aggregation of the Document Structure
+    Tree artifact Milestone 5.1 already produced this chapter. Every
+    argument is already-computed, already-serialized data (`to_json()`
+    output of `artifact_metadata`/`validation_metadata`, or a plain
+    str/int already read off the DST artifact) -- this function performs
+    no computation beyond wrapping them into one DSTMetadata dict, same
+    "already in scope, no new computation" rule as
+    generate_compiler_metadata()/generate_graph_metadata() above.
+
+    Every argument defaults to None so this can be called even for a
+    chapter where the DST was never (yet) built -- see
+    finalize_build_metadata()'s own docstring for why that is the normal
+    case at THIS function's own default call site."""
+    metadata = DSTMetadata(
+        document_structure_tree_artifact_metadata=document_structure_tree_artifact_metadata,
+        document_structure_tree_validation_metadata=document_structure_tree_validation_metadata,
+        dst_chapter_fingerprint=dst_chapter_fingerprint,
+        dst_node_count=dst_node_count,
+        final_dst_status=final_dst_status,
+    )
+    return metadata.to_dict()
+
+
+# --------------------------------------------------------------------------
 # BuildMetadata -- the top-level Phase E1 artifact
 # --------------------------------------------------------------------------
 
@@ -177,6 +248,12 @@ class BuildMetadata:
     compilation_metadata: Dict[str, Any]
     configuration_metadata: Dict[str, Any]
     version_metadata: Dict[str, Any]
+    # Milestone 5.2: additive, defaulted so any existing caller building a
+    # BuildMetadata without DST awareness (or a chapter whose DST is not
+    # yet available -- see finalize_build_metadata()'s own docstring) is
+    # unaffected; an empty dict, exactly like generate_dst_metadata()'s
+    # own all-None default shape, never a missing field.
+    dst_metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -189,11 +266,12 @@ def generate_build_metadata(
     compilation_metadata: Dict[str, Any],
     configuration_metadata: Dict[str, Any],
     version_metadata: Dict[str, Any],
+    dst_metadata: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Phase E1: assembles the five already-computed sub-blocks into one
-    BuildMetadata dict. Performs no computation of its own beyond
-    wrapping them -- see module docstring's REUSE, DON'T RECOMPUTE
-    section."""
+    """Phase E1 (+ Milestone 5.2's additive `dst_metadata`): assembles
+    the already-computed sub-blocks into one BuildMetadata dict. Performs
+    no computation of its own beyond wrapping them -- see module
+    docstring's REUSE, DON'T RECOMPUTE section."""
     metadata = BuildMetadata(
         generated_at=datetime.now(timezone.utc).isoformat(),
         build_metadata_version=BUILD_METADATA_VERSION,
@@ -202,6 +280,7 @@ def generate_build_metadata(
         compilation_metadata=compilation_metadata,
         configuration_metadata=configuration_metadata,
         version_metadata=version_metadata,
+        dst_metadata=dst_metadata if dst_metadata is not None else {},
     )
     return metadata.to_dict()
 
@@ -238,6 +317,23 @@ def finalize_build_metadata(
     use_vlm: bool = True,
     page_batch_size: Optional[int] = None,
     force: bool = False,
+    # Milestone 5.2: Document Structure Tree side, already in scope
+    # WHEN AVAILABLE -- unlike every argument above, the DST (Milestone
+    # 5.1's own pipeline.py integration block) is built AFTER this
+    # function's own call site in process_chapter() (DST construction
+    # needs the fully-assembled `chapter_dict`, which itself is only
+    # complete after Phase E1 already runs -- see pipeline.py's own
+    # comments at each call site). Every DST argument therefore defaults
+    # to None here, producing an all-None `dst_metadata` block exactly
+    # like generate_dst_metadata()'s own default shape -- see
+    # `attach_dst_metadata()` below for how pipeline.py fills this block
+    # in once the DST actually exists, without re-running this function
+    # or any of Phase E1's own aggregation a second time.
+    document_structure_tree_artifact_metadata: Optional[Dict[str, Any]] = None,
+    document_structure_tree_validation_metadata: Optional[Dict[str, Any]] = None,
+    dst_chapter_fingerprint: Optional[str] = None,
+    dst_node_count: Optional[int] = None,
+    final_dst_status: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Phase E1's single pipeline.py integration point (mirrors
     compiler.finalize.finalize_compiler_build()'s and validation.
@@ -292,6 +388,13 @@ def finalize_build_metadata(
         final_graph_status=final_graph_status,
         release_status=release_status,
     )
+    dst_metadata = generate_dst_metadata(
+        document_structure_tree_artifact_metadata=document_structure_tree_artifact_metadata,
+        document_structure_tree_validation_metadata=document_structure_tree_validation_metadata,
+        dst_chapter_fingerprint=dst_chapter_fingerprint,
+        dst_node_count=dst_node_count,
+        final_dst_status=final_dst_status,
+    )
 
     build_metadata = generate_build_metadata(
         compiler_metadata=compiler_metadata,
@@ -299,5 +402,34 @@ def finalize_build_metadata(
         compilation_metadata=compilation_metadata,
         configuration_metadata=configuration_metadata,
         version_metadata=version_metadata,
+        dst_metadata=dst_metadata,
     )
     return {"build_metadata": build_metadata}
+
+
+def attach_dst_metadata(
+    build_metadata: Dict[str, Any],
+    *,
+    dst_metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Milestone 5.2: returns a NEW BuildMetadata dict with `dst_metadata`
+    replaced by an already-computed (`generate_dst_metadata()`) block --
+    never mutates `build_metadata` in place, mirroring
+    `artifact_manager.manifest.attach_artifact_locations()`'s own
+    "immutable record, return a new dict" convention one artifact type
+    over.
+
+    WHY THIS EXISTS, SEPARATELY FROM `finalize_build_metadata()`: the DST
+    (Milestone 5.1) is built later in `pipeline.process_chapter()` than
+    Phase E1's own `finalize_build_metadata()` call -- by the time this
+    chapter's DST artifact exists, `finalize_build_metadata()` has
+    already run and its result is already sitting in
+    `build_metadata.state`. This function lets `pipeline.py` fill in the
+    DST block once it actually has one, without re-running Phase E1's
+    own compiler/graph/compilation/configuration/version aggregation a
+    second time, and without moving or otherwise touching Milestone
+    5.1's own frozen pipeline-integration block. Every other
+    BuildMetadata field is passed through completely unchanged."""
+    updated = dict(build_metadata)
+    updated["dst_metadata"] = dst_metadata
+    return updated
