@@ -34,7 +34,7 @@ function validate(form) {
   return errors;
 }
 
-export default function ChangePasswordSection() {
+export default function ChangePasswordSection({ bare = false }) {
   const { logout } = useAuth();
   const navigate = useNavigate();
 
@@ -88,20 +88,28 @@ export default function ChangePasswordSection() {
   };
 
   return (
-    <section className="bg-white border border-slate-100 rounded-card p-5 sm:p-6 flex flex-col gap-5">
-      <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-btn bg-bgBlueTint flex items-center justify-center shrink-0">
-          <KeyRound className="w-5 h-5 text-primary" />
+    <section
+      className={
+        bare
+          ? "flex flex-col gap-5"
+          : "bg-white border border-slate-100 rounded-card p-5 sm:p-6 flex flex-col gap-5"
+      }
+    >
+      {!bare && (
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-btn bg-bgBlueTint flex items-center justify-center shrink-0">
+            <KeyRound className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">
+              Change Password
+            </h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Update your own password. You'll need to log in again afterward.
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-base font-semibold text-slate-900">
-            Change Password
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Update your own password. You'll need to log in again afterward.
-          </p>
-        </div>
-      </div>
+      )}
 
       {alert && (
         <InlineAlert

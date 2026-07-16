@@ -12,9 +12,22 @@ import EmployeeTable from "./EmployeeTable.jsx";
 import InlineAlert from "../../../components/shared/InlineAlert.jsx";
 import { registerUser } from "../../auth/api/authApi.js";
 import { updateUserRecord } from "../api/employeeApi.js";
+import { useAuth } from "../../auth/hooks/useAuth.js";
 import { DEFAULT_EMPLOYEE_PASSWORD } from "../../../lib/constants.js";
 
+// Which roles a given viewer is allowed to see in the employee list:
+//   - admin can see everyone (admin, manager, user)
+//   - manager can see other managers and users, but not admins
+//   - user shouldn't reach this component at all (Settings is
+//     admin/manager only — see SettingsPage.jsx), so default to nothing.
+const VISIBLE_ROLES_BY_VIEWER = {
+  admin: ["admin", "manager", "user"],
+  manager: ["manager", "user"],
+  user: [],
+};
+
 export default function EmployeeManagementSection() {
+  const { user } = useAuth();
   const {
     employees,
     roleOptions,
@@ -29,6 +42,17 @@ export default function EmployeeManagementSection() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [alert, setAlert] = useState(null);
+
+  const canAddEmployee = user?.role === "admin";
+  const visibleRoles = VISIBLE_ROLES_BY_VIEWER[user?.role] ?? [];
+  const visibleEmployees = employees.filter((emp) =>
+    visibleRoles.includes(emp.role),
+  );
+  // A manager editing a visible row shouldn't be able to promote them to
+  // admin via the role dropdown — only offer roles the viewer can grant.
+  const assignableRoleOptions = roleOptions.filter((role) =>
+    visibleRoles.includes(role),
+  );
 
   const openAddModal = () => {
     setEditingEmployee(null);
@@ -121,14 +145,16 @@ export default function EmployeeManagementSection() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={openAddModal}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-btn bg-primary text-white text-sm font-medium hover:bg-blue-700 transition-colors shrink-0"
-        >
-          <UserPlus className="w-4 h-4" />
-          Add Employee
-        </button>
+        {canAddEmployee && (
+          <button
+            type="button"
+            onClick={openAddModal}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-btn bg-primary text-white text-sm font-medium hover:bg-blue-700 transition-colors shrink-0"
+          >
+            <UserPlus className="w-4 h-4" />
+            Add Employee
+          </button>
+        )}
       </div>
 
       {alert && (
@@ -140,7 +166,7 @@ export default function EmployeeManagementSection() {
       )}
 
       <EmployeeTable
-        employees={employees}
+        employees={visibleEmployees}
         onEdit={openEditModal}
         onDelete={handleDelete}
         onToggleStatus={handleToggleStatus}
@@ -153,7 +179,7 @@ export default function EmployeeManagementSection() {
           setEditingEmployee(null);
         }}
         onSubmit={handleSubmit}
-        roleOptions={roleOptions}
+        roleOptions={assignableRoleOptions}
         statusOptions={statusOptions}
         editingEmployee={editingEmployee}
         isUserIdTaken={isUserIdTaken}
