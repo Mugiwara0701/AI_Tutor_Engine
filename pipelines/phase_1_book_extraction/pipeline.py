@@ -97,6 +97,42 @@ from knowledge_graph.finalize import finalize_knowledge_graph
 from knowledge_graph.identity import graph_id as kg_graph_id, graph_urn as kg_graph_urn
 from knowledge_graph.schema import KnowledgeGraph, KnowledgeGraphMetadata
 from knowledge_graph import state as kg_state
+# ---- Milestone 5.1: Document Structure Tree (DST) — Pipeline Integration -
+# document_structure_tree/ is DST's counterpart to knowledge_graph/ above
+# (see that package's own __init__.py: "both are built from the same
+# upstream inputs (Chapter JSON, canonical registries) ... neither package
+# imports from the other"). Milestones 1-4 (models, builder, validation
+# engine, artifact generation) and the Milestone 5 scaffolding (state.py,
+# registry_snapshot.py, persistence.py) already exist in that package,
+# frozen and unmodified by this milestone -- see its own __init__.py for
+# the exact boundary. This milestone (M5.1) imports only what is needed to
+# INVOKE that existing, frozen machinery from the pipeline: the builder
+# adapter, artifact generation (which itself drives the frozen validation
+# engine -- see artifact.py's own docstring), the DST exception hierarchy
+# (so a build/artifact failure can be logged with a precise cause before
+# it propagates), the chapter-scoped "current DST" state slot, and the
+# canonical-registry adapter over this pipeline's own already-populated
+# `registry_manager`. persistence.py is deliberately NOT imported here:
+# artifact registration, persistence, and build-metadata changes are out
+# of scope for this milestone (see this milestone's own "Do NOT
+# implement" instructions) -- exactly as document_structure_tree's own
+# __init__.py already keeps persist_document_structure_tree() out of the
+# package's own import surface for the analogous reason.
+from document_structure_tree.builder import build_tree_from_chapter_json
+from document_structure_tree.artifact import generate_artifact
+from document_structure_tree.exceptions import (
+    DocumentStructureTreeError,
+    DSTArtifactError,
+    DSTBuildError,
+    DSTIdentityError,
+    DSTSerializationError,
+    DSTValueError,
+)
+from document_structure_tree.primitives import ChapterId, CompilerVersion, SchemaVersion
+from document_structure_tree.registry_snapshot import CompilerRegistrySnapshot
+from document_structure_tree.enums import ValidationStatus as DSTValidationStatus
+from document_structure_tree import state as dst_state
+from schemas.chapter_schema import ChapterJSON
 from validation.system_integrity import validate_system_integrity
 from validation import state as system_integrity_state
 from validation.determinism import validate_determinism
@@ -132,6 +168,23 @@ from knowledge_graph.persistence import persist_knowledge_graph
 from dependency_graph.persistence import persist_dependency_graph
 from validation.persistence import persist_validation_record
 from build_metadata.persistence import persist_build_metadata as _persist_build_metadata_record
+# ---- Milestone 5.2: Document Structure Tree (DST) — Artifact
+# Registration & Persistence -------------------------------------------
+# Additive-only, mirroring the block immediately above one artifact type
+# over: `persist_document_structure_tree()` is Milestone 5's own
+# persistence.py (document_structure_tree/persistence.py, frozen,
+# unmodified by this milestone -- see that module's own docstring),
+# deliberately NOT imported by document_structure_tree/__init__.py for
+# the same reason knowledge_graph.persistence isn't imported by
+# knowledge_graph/__init__.py either (see that package's own docstring).
+# `generate_dst_metadata`/`attach_dst_metadata` are this milestone's own
+# additions to build_metadata/build.py -- see that module's own
+# docstring for why `attach_dst_metadata()` exists as a separate,
+# post-hoc call rather than a new `finalize_build_metadata()` argument
+# used at its original call site (the DST does not exist yet at that
+# point in process_chapter()).
+from document_structure_tree.persistence import persist_document_structure_tree
+from build_metadata.build import generate_dst_metadata, attach_dst_metadata
 
 logging.basicConfig(
     level=logging.INFO,
@@ -139,6 +192,23 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger("ncert_pipeline")
+
+# ---- Milestone 5.1: DST artifact-metadata version markers ---------------
+# `schema_version`/`compiler_version` (schema §2.1/§2.3) must be
+# independently settable semver strings (document_structure_tree.primitives.
+# SchemaVersion/CompilerVersion both enforce MAJOR.MINOR.PATCH) -- neither
+# may be inferred from the other, or from this compiler's own
+# COMPILER_VERSION (compiler/build.py: "B5.1", a milestone-name string, not
+# semver -- see that module's own constants block). DST_SCHEMA_VERSION
+# mirrors the schema-version token every existing DST fixture/usage example
+# already builds artifacts against (document_structure_tree/__init__.py's
+# own usage example, tests/fixtures.py); DST_COMPILER_VERSION is this
+# pipeline's own DST-integration version marker (bump only when this
+# milestone's own pipeline-wiring shape changes in a way a consumer of
+# `artifact_metadata.compiler_version` should be able to detect -- same
+# convention as compiler/build.py's own BUILD_VERSION).
+DST_SCHEMA_VERSION = SchemaVersion("1.1.0")
+DST_COMPILER_VERSION = CompilerVersion("1.0.0")
 
 
 def _topic_lookup_factory(structure):
@@ -242,6 +312,7 @@ def _persist_phase1_artifacts(
     system_integrity_report: Dict[str, Any], determinism_report: Dict[str, Any],
     release_readiness_report: Dict[str, Any], release_status: str,
     build_metadata: Dict[str, Any], dependency_graph: Dict[str, Any],
+    document_structure_tree=None,
 ) -> None:
     """Phase 1 Output Persistence Enhancement: persists every
     chapter-scoped Phase 1 artifact that, before this function existed,
@@ -251,6 +322,15 @@ def _persist_phase1_artifacts(
     does not compute, validate, or reshape a single one of them, it
     only writes each to the storage location its own package's
     persistence.py module already defines.
+
+    `document_structure_tree` (Milestone 5.2, optional -- defaults to
+    None): the already-fully-assembled DST artifact Milestone 5.1's own
+    pipeline-integration block built earlier in process_chapter()
+    (`document_structure_tree.artifact.generate_artifact()`'s return
+    value); never recomputed or revalidated here. Optional only so this
+    function's own signature stays call-compatible with any hand-built
+    caller that predates Milestone 5.2 -- process_chapter()'s own call
+    site (below) always passes it.
 
     NEVER RAISES: mirrors runtime.runtime.CompilerRuntime._record_*()'s
     own "never raises" contract for exactly the same reason -- a
@@ -300,6 +380,17 @@ def _persist_phase1_artifacts(
     except Exception:
         logger.warning("chapter '%s': failed to persist the Knowledge Graph -- chapter "
                         "extraction outcome is unaffected.", chapter_title, exc_info=True)
+
+    if document_structure_tree is not None:
+        try:
+            persist_document_structure_tree(
+                storage, klass, subject, book_slug, chapter_number, chapter_title,
+                document_structure_tree=document_structure_tree,
+                output_root=output_root,
+            )
+        except Exception:
+            logger.warning("chapter '%s': failed to persist the Document Structure Tree -- "
+                            "chapter extraction outcome is unaffected.", chapter_title, exc_info=True)
 
     try:
         persist_dependency_graph(storage, dependency_graph, klass, subject, book_slug, chapter_number,
@@ -2001,6 +2092,148 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         blocks=blocks, educational_objects=educational_objects, validation_report=validation_report,
     )
 
+    # ---- Milestone 5.1: Document Structure Tree (DST) Pipeline Integration -
+    # The one M5.1 integration point: runs immediately after `chapter_dict`
+    # above is fully assembled -- `chapter_dict` IS "an already-completed
+    # schemas.chapter_schema.ChapterJSON" (document_structure_tree.builder.
+    # build_tree_from_chapter_json()'s own documented input contract), so
+    # this is the first point in process_chapter() where that contract is
+    # satisfied. Placed before `doc.close()`/`write_chapter_json()` so DST
+    # construction happens as part of "successful chapter compilation"
+    # itself, not after this chapter's own JSON has already been written to
+    # disk. Mirrors the Phase C1-C4 Knowledge Graph integration block
+    # earlier in this function in spirit (same "one compiler-owned artifact
+    # built from this chapter's already-finished upstream state" shape,
+    # architecture §6/§7), but is its own, independent step -- DST and the
+    # Knowledge Graph never read from or feed into each other (see
+    # document_structure_tree/__init__.py's own module docstring).
+    #
+    # Reuses Milestones 1-4 exactly as they already exist -- `build_tree_
+    # from_chapter_json()` (the builder) and `generate_artifact()` (which
+    # itself drives Milestone 3's frozen `run_all_invariants()` -- see
+    # artifact.py's own docstring, "generate_artifact() calls validation.
+    # run_all_invariants() exactly as Milestone 3 exposes it"). Nothing
+    # here re-implements the builder or the validation engine.
+    #
+    # `chapter_dict` may already be a `ChapterJSON` instance or its
+    # `model_dump()`-shaped dict, depending on json_writer.
+    # assemble_chapter_json()'s own return convention -- accept either
+    # rather than assuming one, so this integration point never silently
+    # builds an empty tree from an object with no `.topics` attribute.
+    #
+    # `registry_manager` (Compiler IR, already fully built by Phase B
+    # above and read read-only by every Phase C step already) is adapted
+    # to the frozen `CanonicalRegistrySnapshot` Protocol via `document_
+    # structure_tree.registry_snapshot.CompilerRegistrySnapshot` --
+    # Milestone 5's own scaffolding for exactly this seam (see that
+    # module's own docstring). `chapter_reference` is reused, unchanged,
+    # as both the DST `ChapterId` and the `canonical_registry_snapshot_ref`
+    # label -- the same deterministic "<book_slug>:<chapter_slug>" pair
+    # every other artifact type in this chapter already uses as its own
+    # chapter identifier (see the Phase C1 `KnowledgeGraphMetadata.
+    # source_chapter_identifier`/compiler_manifest `chapter_identifier`
+    # call sites above).
+    #
+    # FAILURE PROPAGATION: `build_tree_from_chapter_json()` raises
+    # `DSTBuildError` and `generate_artifact()` raises `DSTArtifactError`
+    # only for precondition failures -- a source structure (or a resulting
+    # tree) that cannot be assembled into an artifact at all (e.g. two
+    # topics sharing one source id, an unresolvable parent chain, an empty
+    # tree) -- never for a tree that assembles cleanly but fails one or
+    # more §15 invariants (that is `validation_status = "fail"`, a normal,
+    # fully representable artifact state; see artifact.py's own "A NOTE ON
+    # 'GENERATION' VS. 'VALIDATION OUTCOME'"). Only that first kind of
+    # failure is caught here, and only to log it with full chapter context
+    # before re-raising unchanged -- it is never swallowed. Re-raising lets
+    # it reach process_all_pdfs()'s own per-PDF `except Exception` (near
+    # the end of this file), which already logs and marks this one chapter
+    # failed without stopping the rest of the book, exactly like every
+    # other extraction failure in this pipeline.
+    dst_state.reset_document_structure_tree_state()
+    logger.info("chapter '%s': building Document Structure Tree", structure.chapter_title)
+    try:
+        chapter_json_for_dst = (
+            chapter_dict
+            if isinstance(chapter_dict, ChapterJSON)
+            else ChapterJSON.model_validate(chapter_dict)
+        )
+        dst_chapter_id = ChapterId(chapter_reference)
+        built_dst_tree = build_tree_from_chapter_json(dst_chapter_id, chapter_json_for_dst)
+        dst_registry_snapshot = CompilerRegistrySnapshot(
+            registry_manager=registry_manager, chapter_id=dst_chapter_id,
+        )
+        document_structure_tree = generate_artifact(
+            tree=built_dst_tree.tree,
+            chapter_id=dst_chapter_id,
+            schema_version=DST_SCHEMA_VERSION,
+            compiler_version=DST_COMPILER_VERSION,
+            canonical_registry_snapshot_ref=chapter_reference,
+            registry=dst_registry_snapshot,
+        )
+    except (DSTBuildError, DSTArtifactError, DSTValueError, DSTIdentityError,
+            DSTSerializationError, DocumentStructureTreeError) as exc:
+        logger.error(
+            "chapter '%s': Document Structure Tree build failed: %s",
+            structure.chapter_title, exc,
+        )
+        raise
+    dst_state.set_current_document_structure_tree(document_structure_tree)
+    dst_validation_status = document_structure_tree.validation_metadata.validation_status
+    dst_failed_invariants = [
+        result.invariant_id.value
+        for result in document_structure_tree.validation_metadata.validation_results
+        if result.status is not DSTValidationStatus.PASS
+    ]
+    if dst_validation_status is DSTValidationStatus.PASS:
+        logger.info(
+            "chapter '%s': Document Structure Tree — status=pass node_count=%d",
+            structure.chapter_title, len(document_structure_tree.tree),
+        )
+    else:
+        logger.warning(
+            "chapter '%s': Document Structure Tree — status=fail failed_invariants=%s",
+            structure.chapter_title, dst_failed_invariants,
+        )
+
+    # ---- Milestone 5.2: Document Structure Tree (DST) — Artifact
+    # Registration & Persistence: build_metadata integration -----------------
+    # NOT part of Milestone 5.1's own frozen block above (see this
+    # milestone's own "Out of Scope: Pipeline integration from M5.1" --
+    # nothing above this comment is touched). `build_metadata_result` was
+    # already computed and stored by Phase E1 earlier in process_chapter()
+    # (see the "Phase E1: Build Metadata" block above), before the DST
+    # itself existed -- its `dst_metadata` sub-block is therefore still the
+    # all-None default `generate_dst_metadata()` produces (see
+    # build_metadata.build's own module docstring). Now that
+    # `document_structure_tree` is available, this fills that block in via
+    # `attach_dst_metadata()` (an immutable "return a new dict" update,
+    # never a mutation of the dict Phase E1 already produced) and re-stores
+    # the result in build_metadata.state, so both the in-memory
+    # `build_metadata_result` used below and any later in-process reader of
+    # `build_metadata.state.get_current_build_metadata()` see the same,
+    # DST-aware BuildMetadata. Every value passed to `generate_dst_metadata()`
+    # is read verbatim off `document_structure_tree` -- nothing here
+    # recomputes fingerprinting, validation, or artifact assembly a second
+    # time (Milestone 3/4's own `chapter_fingerprint`/`validation_status`
+    # are reused exactly as Milestone 5.1 already computed them above).
+    dst_metadata_block = generate_dst_metadata(
+        document_structure_tree_artifact_metadata=document_structure_tree.artifact_metadata.to_json(),
+        document_structure_tree_validation_metadata=document_structure_tree.validation_metadata.to_json(),
+        dst_chapter_fingerprint=document_structure_tree.artifact_metadata.chapter_fingerprint.to_json(),
+        dst_node_count=len(document_structure_tree.tree),
+        final_dst_status=dst_validation_status.to_json(),
+    )
+    build_metadata_result["build_metadata"] = attach_dst_metadata(
+        build_metadata_result["build_metadata"], dst_metadata=dst_metadata_block,
+    )
+    build_metadata_state.set_current_build_metadata(build_metadata_result["build_metadata"])
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "chapter '%s': build metadata — dst_chapter_fingerprint=%s final_dst_status=%s",
+            structure.chapter_title, dst_metadata_block["dst_chapter_fingerprint"],
+            dst_metadata_block["final_dst_status"],
+        )
+
     doc.close()
     out_path = json_writer.write_chapter_json(chapter_dict, structure.klass, structure.subject, book_slug,
                                                structure.chapter_number, structure.chapter_title,
@@ -2045,6 +2278,7 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         release_status=release_finalization["release_status"],
         build_metadata=build_metadata_result["build_metadata"],
         dependency_graph=dependency_graph_result["dependency_graph"],
+        document_structure_tree=document_structure_tree,
     )
     return out_path
 

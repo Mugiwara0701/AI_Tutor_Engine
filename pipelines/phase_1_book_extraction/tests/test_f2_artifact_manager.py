@@ -41,6 +41,38 @@ from runtime import state as runtime_state  # noqa: E402
 from storage.exceptions import NotFoundError  # noqa: E402
 from modules import json_writer  # noqa: E402
 
+# Milestone 5.2: Document Structure Tree (DST) artifact registration --
+# reuses Milestone 4's own tests/fixtures.py (already frozen, no new
+# tree-assembly or validation logic), exactly like test_generate_
+# artifact.py already does, so these tests build a real DST artifact
+# rather than a hand-rolled stand-in.
+from document_structure_tree import state as dst_state  # noqa: E402
+from document_structure_tree.artifact import generate_artifact, to_canonical_json  # noqa: E402
+from tests.fixtures import (  # noqa: E402
+    BUILD_TIMESTAMP,
+    CHAPTER_ID as DST_CHAPTER_ID,
+    COMPILER_VERSION as DST_COMPILER_VERSION,
+    REGISTRY_REF as DST_REGISTRY_REF,
+    SCHEMA_VERSION as DST_SCHEMA_VERSION,
+    build_small_clean_tree,
+    clean_registry,
+)
+
+
+def _make_dst_artifact():
+    """A small, real, passing DST artifact -- same fixtures Milestone
+    4's own test_generate_artifact.py already builds against."""
+    built = build_small_clean_tree()
+    return generate_artifact(
+        tree=built.tree,
+        chapter_id=DST_CHAPTER_ID,
+        schema_version=DST_SCHEMA_VERSION,
+        compiler_version=DST_COMPILER_VERSION,
+        canonical_registry_snapshot_ref=DST_REGISTRY_REF,
+        build_timestamp=BUILD_TIMESTAMP,
+        registry=clean_registry(),
+    )
+
 
 # ---------------------------------------------------------------------------
 # Shared fakes
@@ -88,12 +120,17 @@ def _reset_state():
     """Both runtime state and Phase F2's own current-build state are
     module-level and run-scoped -- reset before/after every test, same
     idiom test_f1_compiler_runtime.py's own _reset_runtime_state fixture
-    already uses."""
+    already uses. Milestone 5.2: document_structure_tree.state is the
+    same kind of module-level, run-scoped slot one artifact type over --
+    reset alongside the other two so a DST left "current" by one test
+    can never leak into build_reference_snapshot() for another."""
     runtime_state.reset_runtime_state()
     build_state.reset_current_build()
+    dst_state.reset_document_structure_tree_state()
     yield
     runtime_state.reset_runtime_state()
     build_state.reset_current_build()
+    dst_state.reset_document_structure_tree_state()
 
 
 @pytest.fixture
@@ -157,6 +194,9 @@ def test_create_build_basic_shape():
     # chapter-scoped state was ever set in this process.
     assert build.compiler_ir_reference is None
     assert build.knowledge_graph_reference is None
+    # Milestone 5.2: DST's own reference, same "None when no chapter-
+    # scoped state was ever set" rule as every sibling reference above.
+    assert build.document_structure_tree_reference is None
 
 
 def test_build_ids_sort_chronologically_even_under_a_timestamp_collision():
@@ -222,8 +262,107 @@ def test_build_reference_snapshot_reads_existing_compiler_state():
 
 
 # ---------------------------------------------------------------------------
-# 2. Build Manifest
+# 1b. Milestone 5.2 — Document Structure Tree (DST) artifact registration
 # ---------------------------------------------------------------------------
+
+def test_build_reference_snapshot_reads_existing_dst_state():
+    """DST's counterpart to test_build_reference_snapshot_reads_
+    existing_compiler_state above: if document_structure_tree/state.py
+    already has a current DST set (as it would mid-pipeline.process_
+    chapter(), after Milestone 5.1's own integration block runs), Build
+    reads it verbatim via to_canonical_json() -- never a second
+    serialization format, and never the builder/validation engine
+    re-run a second time."""
+    artifact = _make_dst_artifact()
+    dst_state.set_current_document_structure_tree(artifact)
+    try:
+        build = _make_build()
+        assert build.document_structure_tree_reference is not None
+        assert build.document_structure_tree_reference["source"] == "last_processed_chapter"
+        assert (
+            build.document_structure_tree_reference["artifact"]
+            == to_canonical_json(artifact)
+        )
+    finally:
+        dst_state.reset_document_structure_tree_state()
+
+
+def test_build_document_structure_tree_reference_is_isolated_from_later_mutation():
+    """Same snapshot-not-alias guarantee _to_plain()/_reference() already
+    give every other artifact type (see test_build_dependency_graph_
+    reference_is_isolated_from_later_mutation below) -- Build's own copy
+    of the DST's canonical JSON must never be the same dict a later
+    reset_document_structure_tree_state()/set_current_document_structure_
+    tree() call could still mutate."""
+    artifact = _make_dst_artifact()
+    dst_state.set_current_document_structure_tree(artifact)
+    try:
+        build = _make_build()
+        original_chapter_fingerprint = (
+            build.document_structure_tree_reference["artifact"]["artifact_metadata"]["chapter_fingerprint"]
+        )
+        # Mutate the live DST state slot's own canonical JSON, if a
+        # caller ever did such a thing (not itself a supported operation,
+        # only used here to prove Build's copy is unaffected).
+        live_copy = to_canonical_json(dst_state.get_current_document_structure_tree())
+        live_copy["artifact_metadata"]["chapter_fingerprint"] = "0" * 64
+        assert (
+            build.document_structure_tree_reference["artifact"]["artifact_metadata"]["chapter_fingerprint"]
+            == original_chapter_fingerprint
+        )
+    finally:
+        dst_state.reset_document_structure_tree_state()
+
+
+def test_manifest_carries_document_structure_tree_reference_matching_build_field():
+    """DST's counterpart to test_manifest_carries_chapter_state_
+    references_matching_build_fields above -- the manifest's own
+    chapter_state_references must mirror Build.document_structure_tree_
+    reference verbatim, same single-source-of-truth guarantee every
+    other reference already has."""
+    artifact = _make_dst_artifact()
+    dst_state.set_current_document_structure_tree(artifact)
+    try:
+        build = _make_build()
+    finally:
+        dst_state.reset_document_structure_tree_state()
+
+    manifest = generate_build_manifest(build)
+    refs = manifest["chapter_state_references"]
+    assert refs["document_structure_tree_reference"] == build.document_structure_tree_reference
+    assert refs["document_structure_tree_reference"] is not None
+
+
+def test_artifact_index_includes_document_structure_tree_reference_before_manifest():
+    """artifact_index's own pre-manifest fallback (see Build.
+    artifact_index's own docstring) must include the DST reference too,
+    same as every other one of the eight (now nine) *_reference
+    fields."""
+    artifact = _make_dst_artifact()
+    dst_state.set_current_document_structure_tree(artifact)
+    try:
+        build = _make_build()
+    finally:
+        dst_state.reset_document_structure_tree_state()
+
+    index = build.artifact_index
+    assert (
+        index["chapter_state_references"]["document_structure_tree_reference"]
+        == build.document_structure_tree_reference
+    )
+
+
+def test_document_structure_tree_reference_is_none_when_no_dst_was_built():
+    """A chapter whose Milestone 5.1 block never ran (or was reset
+    before Build read it) must yield None, exactly like every sibling
+    reference already does for an unset state slot -- never an
+    exception, never a stale artifact from a previous chapter."""
+    assert not dst_state.has_current_document_structure_tree()
+    build = _make_build()
+    assert build.document_structure_tree_reference is None
+
+
+
 
 def test_generate_build_manifest_is_deterministic():
     build = _make_build()

@@ -94,23 +94,78 @@ a `to_json`/`from_json` pair following schema §5's serialization rules
 exactly. See each module's own docstring for the precise boundary
 between what is validated here and what is deferred.
 
-EXPLICITLY NOT IN THIS PACKAGE (later milestones; see
-`DST_Implementation_Roadmap_v1.0.md`, and this milestone's own
-"Out of Scope" instructions):
-    - Span *computation* over a tree (roadmap M3) -- every node
-      `build_tree()` constructs carries the empty `Span()`; `Span`
-      itself remains only a value container, as in Milestone 1.
-    - Builder changes, validation-engine changes -- this milestone
-      calls Milestone 2.2's `build_tree()` and Milestone 3's
-      `run_all_invariants()`/`compute_chapter_fingerprint()` exactly as
-      they already exist; neither is modified or reimplemented here.
-    - Compiler pipeline integration (Chapter JSON -> tree -> artifact
-      end-to-end wiring, a real canonical-registry client, "write to
-      disk") -- roadmap M10, out of scope for this milestone.
-      `generate_artifact()` takes an already-built `tree` and
-      already-resolved inputs as plain arguments.
-    - Persistence, OneDrive integration, build orchestration -- not
-      referenced anywhere in this package.
+MILESTONE 5 SCOPE (this package, today) — Compiler Integration (roadmap
+M10, architecture §7, §9):
+    - `state.py`            — chapter-scoped "current DST" lifecycle
+                               (`set_current_document_structure_tree()`/
+                               `get_current_document_structure_tree()`/
+                               `has_current_document_structure_tree()`/
+                               `reset_document_structure_tree_state()`),
+                               mirroring `knowledge_graph/state.py`'s
+                               established idiom.
+    - `registry_snapshot.py`— `CompilerRegistrySnapshot`, the concrete
+                               `validation.CanonicalRegistrySnapshot`
+                               implementation Milestone 3 anticipated but
+                               deliberately left unimplemented ("owned
+                               upstream") -- adapts this codebase's real
+                               canonical registries
+                               (`compiler.RegistryManager`, already
+                               fully populated by the existing compiler
+                               pipeline) to that Protocol, so
+                               R2/R3/R4/B2 can run against real chapter
+                               data, not just the in-memory fake.
+    - `persistence.py`      — `persist_document_structure_tree()`/
+                               `load_document_structure_tree()`/
+                               `document_structure_tree_exists()`,
+                               reusing `artifact.to_canonical_json()`
+                               (never re-serializing) and this
+                               codebase's existing OneDrive storage
+                               surface, mirroring
+                               `knowledge_graph/persistence.py`. NOT
+                               imported below, by design: it depends on
+                               `modules.json_writer`/`storage.exceptions`,
+                               external to this package -- exactly why
+                               `knowledge_graph/__init__.py` never
+                               imports `knowledge_graph/persistence.py`
+                               either. Callers (`pipeline.py`) import
+                               `document_structure_tree.persistence`
+                               directly, mirroring how `pipeline.py`
+                               already imports `knowledge_graph.
+                               persistence` directly rather than through
+                               `knowledge_graph/__init__.py`. This keeps
+                               `import document_structure_tree` free of
+                               any dependency on those two external
+                               modules, exactly as it already was before
+                               this milestone.
+
+None of Milestone 5's three files above modify `builder.py`,
+`validation.py`, `serialization.py`, `artifact.py`,
+`document_structure_tree.py`, `heading_node.py`, `sequence_entry.py`,
+`primitives.py`, `identity.py`, `enums.py`, or `exceptions.py` -- every
+model, algorithm, and validation invariant Milestones 1-4 already built
+is reused exactly as it already exists (this milestone's own "Reuse the
+existing builder, validator, serializer, and models" instruction). The
+compiler-pipeline wiring itself (invoking these three modules, plus
+Milestone 4's `build_tree_from_chapter_json()`/`generate_artifact()`, at
+the correct point in `pipeline.py`'s `process_chapter()`) lives in
+`pipeline.py`, not in this package, exactly as every other artifact
+type's own pipeline integration already does (`knowledge_graph.
+build_nodes`/`build_edges` are called directly from `pipeline.py`, never
+wrapped in a second orchestration package).
+
+EXPLICITLY NOT IN THIS PACKAGE (out of scope for this milestone too --
+this milestone's own "Out of Scope" instructions):
+    - Span *computation* over a tree -- every node `build_tree()`
+      constructs carries the empty `Span()`; `Span` itself remains only
+      a value container, as in Milestone 1. Not part of this
+      milestone's own scope list, and not touched here.
+    - Any change to the DST Architecture, DST Schema, DST Builder,
+      Validation Engine, or Serialization logic.
+    - A new compiler architecture, a new artifact system, a new storage
+      system, or a new persistence mechanism -- `persistence.py` above
+      reuses this codebase's existing OneDrive storage surface exactly
+      as every sibling artifact-type persistence module already does.
+    - Phase 2 functionality.
 
 Usage:
 
@@ -205,8 +260,15 @@ from .primitives import (
     Span,
     Timestamp,
 )
+from .registry_snapshot import EXCLUDED_REGISTRY_NAMES, CompilerRegistrySnapshot
 from .sequence_entry import SequenceEntry
 from .serialization import OMIT, JsonSerializable, json_object, round_trip
+from .state import (
+    get_current_document_structure_tree,
+    has_current_document_structure_tree,
+    reset_document_structure_tree_state,
+    set_current_document_structure_tree,
+)
 from .validation import (
     CanonicalRegistrySnapshot,
     InMemoryCanonicalRegistrySnapshot,
@@ -284,4 +346,16 @@ __all__ = [
     "JsonSerializable",
     "json_object",
     "round_trip",
+    # Milestone 5: compiler integration -- chapter-scoped state
+    "set_current_document_structure_tree",
+    "get_current_document_structure_tree",
+    "has_current_document_structure_tree",
+    "reset_document_structure_tree_state",
+    # Milestone 5: compiler integration -- canonical registry adapter
+    "CompilerRegistrySnapshot",
+    "EXCLUDED_REGISTRY_NAMES",
+    # Milestone 5: compiler integration -- persistence.py is NOT
+    # imported here (see module docstring); import it directly, e.g.
+    # `from document_structure_tree.persistence import
+    # persist_document_structure_tree`.
 ]
