@@ -77,6 +77,7 @@ from modules import stage_a_geometry, stage_b_classify, stage_c_priority, stage_
 from modules import kg_readiness
 from modules import equation_intent
 from modules import canonical
+from modules import topic_linker
 from modules.pdf_parser import make_id, slugify, auto_detect_subject, auto_detect_class
 from compiler.registries import create_registry_manager, populate_registries
 from compiler.enrichment import enrich_registries
@@ -1038,6 +1039,32 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     for idx, ex in enumerate(examples):
         _attach_canonical(ex, object_type="example", urn_parts=["example", str(ex.get("page")), str(idx)],
                            extraction_stage="content_blocks.detect_examples", confidence=0.6)
+
+    # ---- Milestone 1: Universal Object Linking ---------------------------
+    # Concepts, glossary entries, and definitions were already linked to
+    # their enclosing topic above (topic_ids set inline at construction
+    # time -- see the topic-construction loop and
+    # content_blocks.detect_definition_terms's topic_lookup argument).
+    # Every other canonical object type built above (figures/diagrams/
+    # tables/equations/activities/boxes/warnings/notes/examples) went
+    # through _attach_canonical() with no topic_ids= argument, so it
+    # defaulted to [] -- see modules/topic_linker.py's module docstring
+    # (BACKGROUND section) for the full explanation. This single,
+    # reusable, object-type-agnostic pass closes that gap: it resolves
+    # each of those nine types' topic_ids via deterministic page-range
+    # containment (never a caption/title guess) and populates the
+    # matching reverse-reference list (examples/figures/tables/.../
+    # warnings) on each `topics_out` entry in place. Must run after every
+    # object list above is fully built (every object's `page` is already
+    # set) and after topics_out's own page_start/page_end/id are final
+    # (set above, before `concept_name_to_id` is built) -- exactly where
+    # this call sits.
+    topic_linking_stats = topic_linker.link_universal_objects(
+        topics=topics_out,
+        examples=examples, tables=tables, figures=figures, diagrams=diagrams,
+        equations=equations, notes=notes, boxes=boxes, activities=activities,
+        warnings=warnings_list,
+    )
 
     # ---- graphs + semantic index -- restored ----
     learning_graph = graph_builder.build_learning_graph(topics_out)
@@ -2054,6 +2081,8 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("chapter '%s': registry population — %s",
                      structure.chapter_title, registry_manager.statistics())
+        logger.debug("chapter '%s': universal object linking — %s",
+                     structure.chapter_title, topic_linking_stats)
         logger.debug("chapter '%s': reference resolution — %s",
                      structure.chapter_title, reference_resolution_stats)
         logger.debug("chapter '%s': relationship resolution — %s",

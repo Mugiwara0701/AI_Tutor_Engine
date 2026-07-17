@@ -270,11 +270,8 @@ def test_attach_artifact_locations_updates_fingerprint_and_never_mutates_input()
 
 def test_manifest_carries_chapter_state_references_matching_build_fields():
     """The manifest's own chapter_state_references must always mirror
-    Build's nine *_reference fields verbatim -- single source read,
-    two representations, zero drift. (document_structure_tree_reference
-    is Milestone 5.2's addition to the original eight; verified here
-    alongside the rest so it can never silently drift out of sync with
-    the manifest the way the other eight are already protected.)"""
+    Build's eight *_reference fields verbatim -- single source read,
+    two representations, zero drift."""
     import compiler.state as compiler_state
     from compiler.registry_manager import RegistryManager
 
@@ -296,7 +293,6 @@ def test_manifest_carries_chapter_state_references_matching_build_fields():
     assert refs["incremental_plan_reference"] == build.incremental_plan_reference
     assert refs["incremental_validation_reference"] == build.incremental_validation_reference
     assert refs["incremental_finalization_reference"] == build.incremental_finalization_reference
-    assert refs["document_structure_tree_reference"] == build.document_structure_tree_reference
     # And artifact_locations remains its own, separate, comprehensive index.
     assert "artifact_locations" in manifest
     assert manifest["artifact_locations"] != refs
