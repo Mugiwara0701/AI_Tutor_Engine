@@ -40,8 +40,8 @@ milestone's instruction to point at the spec rather than invent.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
-from typing import Any, Dict, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
 from .exceptions import DSTValueError
 from .serialization import (

@@ -115,13 +115,12 @@ def make_definition(id_="def-1", term="Force", topic_ids=None, **extra):
     return d
 
 
-def make_topic(id_="h1", title="Newton's Second Law", **extra):
+def make_topic(id_, **extra):
     d = {
         "id": id_, "urn": f"urn:topic:{id_}", "object_type": "topic",
         "schema_version": "1.0.0", "provenance": {"source": "test"},
         "validation_status": "validated",
         "creation_metadata": {"compiler_version": "1.0.0"},
-        "title": title,
     }
     d.update(extra)
     return d
@@ -169,17 +168,14 @@ def run_full_compiler_flow(topics=None):
     as pipeline.py's own process_chapter() does, so
     build_reference_snapshot() has a real compiler_ir_reference to read.
     """
-    topics = topics if topics is not None else [
-        make_topic(id_="h1", title="Newton's Second Law"),
-        make_topic(id_="h2", title="Momentum"),
-    ]
+    topics = topics if topics is not None else [make_topic("h1"), make_topic("h2")]
     manager = create_registry_manager()
     populate_registries(
         manager,
         topics=topics,
         concepts=[make_concept()],
         definitions=[make_definition()],
-        figures=[make_figure(id_="fig-1")],
+        figures=[make_figure()],
     )
     enrich_registries(manager)
     normalize_registries(manager)
@@ -291,13 +287,29 @@ class TestArtifactRegistrationEndToEnd:
         build = _make_build()
         assert build.compiler_ir_reference is not None
         assert build.document_structure_tree_reference is not None
-        # both artifacts are snapshots of the SAME chapter's work
-        assert (
-            compiler_result["manifest"]["chapter_identifier"]
-            == build.document_structure_tree_reference["artifact"]["build_provenance"][
-                "canonical_registry_snapshot_ref"
-            ]
-        )
+        # both artifacts describe the SAME chapter's content: the
+        # compiler registries' definition/figure ids match the content
+        # ids referenced from the DST tree's own sequence entries.
+        # (DST node_ids are derived hashed identities per schema §14,
+        # not the raw source topic ids, so content-ref ids -- which
+        # DO appear verbatim in both places -- are the right seam to
+        # compare on.)
+        registry_definition_ids = {
+            item["id"] for item in
+            build.compiler_ir_reference["artifact"]["registries"]["definitions"]["items"]
+        }
+        registry_figure_ids = {
+            item["id"] for item in
+            build.compiler_ir_reference["artifact"]["registries"]["figures"]["items"]
+        }
+        tree_content_refs = {
+            entry["ref"] for node in build.document_structure_tree_reference["artifact"]["tree"]
+            for entry in node.get("sequence", [])
+            if entry.get("entry_type") == "content"
+        }
+        assert registry_definition_ids == {"def-1"}
+        assert registry_figure_ids == {"fig-1"}
+        assert tree_content_refs == {"def-1", "fig-1"}
 
     def test_build_without_a_dst_step_still_registers_compiler_alone(self):
         """Regression guard: a chapter that never reaches the DST step
@@ -438,4 +450,5 @@ class TestCompilerOutputRegression:
 
         assert compiler_state.get_current_compiler_manifest() == manifest_before
         assert not dst_state.has_current_document_structure_tree()
+
 

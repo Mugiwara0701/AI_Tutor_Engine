@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from typing import Any, Dict, Iterable, Protocol, Tuple, Type, TypeVar, runtime_checkable
+from typing import Any, Dict, Iterable, Protocol, Tuple, TypeVar, runtime_checkable
 
 from .exceptions import DSTSerializationError, DSTValueError
 

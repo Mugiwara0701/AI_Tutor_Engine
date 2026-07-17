@@ -117,8 +117,20 @@ def test_parse_cover_metadata_never_mutates_or_reads_back_book_title():
         _line("Physics", size=24.0, y=50.0),
         _line("Electrostatics", size=18.0, y=90.0),
     ]
-    book_title, _, _ = parse_book_title_and_class(lines, body_size=10.0, repeated=set())
-    meta = parse_cover_metadata(lines, body_size=10.0, repeated=set(), book_title=book_title)
+
+    book_title, _, _, _ = parse_book_title_and_class(
+        lines,
+        body_size=10.0,
+        repeated=set(),
+    )
+
+    meta = parse_cover_metadata(
+        lines,
+        body_size=10.0,
+        repeated=set(),
+        book_title=book_title,
+    )
+
     assert book_title == "Physics"
     assert meta["subtitle"] == "Electrostatics"
 
