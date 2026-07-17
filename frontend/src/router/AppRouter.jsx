@@ -45,7 +45,7 @@ export default function AppRouter() {
         <Route path="/storage-explorer" element={<StorageExplorerPage />} />
         <Route path="/analytics" element={<AnalyticsPage />} />
         <Route path="/search" element={<GlobalSearchPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/employee" element={<SettingsPage />} />
       </Route>
 
       <Route path="/" element={<Navigate to="/login" replace />} />

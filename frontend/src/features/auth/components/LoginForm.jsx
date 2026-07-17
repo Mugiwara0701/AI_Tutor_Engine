@@ -89,14 +89,14 @@ export default function LoginForm({ mode = "login" }) {
             >
               Password
             </label>
-            {!isSignUp && (
+            {/* {!isSignUp && (
               <Link
                 to="#"
                 className="text-sm font-medium text-primary hover:text-primaryHover hover:underline"
               >
                 Forgot password?
               </Link>
-            )}
+            )} */}
           </div>
           <PasswordInput
             id="auth-password"

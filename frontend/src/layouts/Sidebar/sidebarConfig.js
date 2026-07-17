@@ -86,10 +86,10 @@ export const SIDEBAR_NAV = [
     path: "/search",
   },
   {
-    key: "settings",
-    label: "Settings",
+    key: "employee",
+    label: "Employee",
     icon: Settings,
-    path: "/settings",
+    path: "/employee",
     // Only admin/manager get the Settings nav item — plain "user" accounts
     // have no employee-management or workspace settings to see. Items
     // without a `roles` list are visible to everyone.
