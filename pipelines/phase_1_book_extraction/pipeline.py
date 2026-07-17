@@ -168,6 +168,8 @@ from compiler.persistence import persist_registries, persist_compiler_metadata
 from knowledge_graph.persistence import persist_knowledge_graph
 from dependency_graph.persistence import persist_dependency_graph
 from validation.persistence import persist_validation_record
+from modules import copyright_sanitizer
+from extraction_debug.persistence import persist_extraction_debug
 from build_metadata.persistence import persist_build_metadata as _persist_build_metadata_record
 # ---- Milestone 5.2: Document Structure Tree (DST) — Artifact
 # Registration & Persistence -------------------------------------------
@@ -314,6 +316,7 @@ def _persist_phase1_artifacts(
     release_readiness_report: Dict[str, Any], release_status: str,
     build_metadata: Dict[str, Any], dependency_graph: Dict[str, Any],
     document_structure_tree=None,
+    copyright_debug_entries: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """Phase 1 Output Persistence Enhancement: persists every
     chapter-scoped Phase 1 artifact that, before this function existed,
@@ -419,6 +422,17 @@ def _persist_phase1_artifacts(
     except Exception:
         logger.warning("chapter '%s': failed to persist Build Metadata -- chapter extraction "
                         "outcome is unaffected.", chapter_title, exc_info=True)
+
+    try:
+        persist_extraction_debug(
+            storage, klass, subject, book_slug, chapter_number, chapter_title,
+            debug_entries=copyright_debug_entries or [],
+            output_root=output_root,
+        )
+    except Exception:
+        logger.warning("chapter '%s': failed to persist the Milestone 3.2 extraction-debug "
+                        "record -- chapter extraction outcome is unaffected.",
+                        chapter_title, exc_info=True)
 
 
 def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_order_fallback: int,
@@ -992,6 +1006,18 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                            confidence=eq_record["confidence"])
 
     # ---- content blocks -> final records -- restored ----
+    # Milestone 3.3 fix: this used to set `semantic_description` directly
+    # from `_enforce_word_cap(body[:200])` -- a raw character-slice of the
+    # block's own source text. Capping the word count shortens copied
+    # prose, it does not stop it being copied prose, so that was still a
+    # source-text leak (M3.1 §2.1 MEDIUM finding, deferred by M3.2). The
+    # raw excerpt is now handed to `copyright_sanitizer.sanitize_content_blocks`
+    # below instead, which strips it into the debug artifact and leaves
+    # `semantic_description` empty -- the same interim behavior Figures/
+    # Tables/Equations already have at Phase 1, pending a real paraphrase
+    # step. `_body_for_semantic` itself never reaches the sanitizer or the
+    # production record; only its capped preview does, and only as debug
+    # payload.
     def _finalize_blocks(raw_list):
         out = []
         for item in raw_list:
@@ -1119,6 +1145,70 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     educational_objects = kg_readiness.enrich_educational_objects(
         educational_objects, blocks, topics_out, structure.chapter_title,
         figures=figures, tables=tables, equations=equations,
+    )
+
+    # ---- Milestone 3.2: Copyright-Safe Serialization ---------------------
+    # Implements the M3.1 audit's HIGH-risk findings (see
+    # modules/copyright_sanitizer.py's own module docstring for the full
+    # field list and reasoning). Deliberately runs HERE, after Stage E
+    # (stage_e_validation.validate_educational_objects, above -- which
+    # reads `reusable_procedure`'s own CONTENT, not just its presence, to
+    # decide whether an object is bare-arithmetic/duplicate junk) and
+    # after kg_readiness.enrich_educational_objects (which only reads
+    # already-SAFE fields: block_id/bbox/page/educational_object_type/
+    # confidence -- never the HIGH-risk prose fields this sanitizes), but
+    # BEFORE `equations`/`educational_objects` are handed to
+    # populate_registries() (Compiler IR) or json_writer.assemble_chapter_json()
+    # (production Chapter JSON) below -- i.e. after every legitimate
+    # deterministic consumer of the raw content has already run, and
+    # before every downstream artifact that must never carry it.
+    #
+    # `equations`/`educational_objects` are reassigned to their sanitized
+    # versions so every later reader in this function (registries,
+    # quality scoring, chapter_dict assembly, DST) sees only the
+    # copyright-safe shape -- there is no second, unsanitized copy left
+    # anywhere in this function's scope.
+    equations, educational_objects, _copyright_debug_entries = (
+        copyright_sanitizer.sanitize_chapter_records(equations, educational_objects)
+    )
+
+    # ---- Milestone 3.3: Copyright-Safe Serialization, cont'd -------------
+    # The MEDIUM/LOW findings M3.2 deferred (see copyright_sanitizer.py's
+    # module docstring, "Milestone 3.3 additions"). Run at the same
+    # checkpoint as the M3.2 call directly above, for the same reason: by
+    # this point Stage E and KG-readiness have already read whatever they
+    # needed from `figures`/`tables`/`diagrams`, and nothing downstream of
+    # here (registries, chapter_dict assembly, DST) may see raw content-
+    # block descriptions or uncapped captions. Every list here is mutated
+    # in place via .append() from where it was first built, never
+    # reassigned, so these are still the same objects that will be
+    # written into the production Chapter JSON below -- reassigning each
+    # to its sanitized version keeps that "no second unsanitized copy"
+    # guarantee.
+    activities_report = copyright_sanitizer.sanitize_content_blocks(activities, record_type="activity")
+    boxes_report = copyright_sanitizer.sanitize_content_blocks(boxes, record_type="box")
+    warnings_report = copyright_sanitizer.sanitize_content_blocks(warnings_list, record_type="warning")
+    notes_report = copyright_sanitizer.sanitize_content_blocks(notes, record_type="note")
+    examples_report = copyright_sanitizer.sanitize_content_blocks(examples, record_type="example")
+    activities, boxes, warnings_list, notes, examples = (
+        activities_report.sanitized, boxes_report.sanitized, warnings_report.sanitized,
+        notes_report.sanitized, examples_report.sanitized,
+    )
+
+    figures_report = copyright_sanitizer.sanitize_visual_captions(figures, record_type="figure")
+    diagrams_report = copyright_sanitizer.sanitize_visual_captions(diagrams, record_type="diagram")
+    tables_report = copyright_sanitizer.sanitize_visual_captions(tables, record_type="table")
+    figures, diagrams, tables = (
+        figures_report.sanitized, diagrams_report.sanitized, tables_report.sanitized,
+    )
+
+    _copyright_debug_entries = (
+        _copyright_debug_entries
+        + activities_report.debug_entries + boxes_report.debug_entries
+        + warnings_report.debug_entries + notes_report.debug_entries
+        + examples_report.debug_entries
+        + figures_report.debug_entries + diagrams_report.debug_entries
+        + tables_report.debug_entries
     )
 
     quality = {
@@ -2308,6 +2398,7 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         build_metadata=build_metadata_result["build_metadata"],
         dependency_graph=dependency_graph_result["dependency_graph"],
         document_structure_tree=document_structure_tree,
+        copyright_debug_entries=_copyright_debug_entries,
     )
     return out_path
 
