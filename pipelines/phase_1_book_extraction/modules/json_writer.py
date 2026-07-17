@@ -66,6 +66,12 @@ _ARTIFACT_SUBFOLDERS = (
                                  # added here, mirroring every sibling artifact type above, so that
                                  # assumption actually holds (previously artifact_output_dir() raised
                                  # ValueError for this artifact_type, silently breaking DST persistence).
+    "extraction_debug",    # extraction_debug/persistence.py -- Milestone 3.2 (Copyright-Safe
+                            # Serialization) debug-only record of whatever
+                            # modules.copyright_sanitizer stripped out of the production Chapter
+                            # JSON (raw_text / reusable_procedure / procedure_steps /
+                            # reusable_syntax / vlm_raw_output / vlm_validation_errors). Never
+                            # written to json_out/ -- see extraction_debug/__init__.py.
 )
 
 _BOOK_SUBFOLDERS = ("json_out", "logs", "cache", "assets") + _ARTIFACT_SUBFOLDERS

@@ -1,57 +1,73 @@
-# Schema Migrations
+# Chapter JSON schema migrations
 
-This file documents every change to the exported Chapter JSON's
-`schema_version` (see `config.SCHEMA_VERSION` for the versioning policy:
-MAJOR.MINOR.PATCH SemVer applied to field meaning/compatibility, not code
-releases).
+Tracks `config.SCHEMA_VERSION` (MAJOR.MINOR.PATCH, per config.py's own
+policy comment) history for the exported Chapter JSON
+(`schemas/chapter_schema.py: ChapterJSON`).
 
-## 1.0.0 → 2.0.0 (Phase A)
+## 2.0.0 -> 3.0.0 — Milestone 3.2, Copyright-Safe Serialization
 
-**What changed:** `TopicNode.concepts` changed meaning.
+**Type:** MAJOR (fields removed — see below).
 
-| | Before (1.0.0) | After (2.0.0) |
+**What changed:** `modules/copyright_sanitizer.py` now runs as a
+serialization-time gate in `pipeline.py` (right after Stage E validation
+and Knowledge-Graph readiness enrichment, before the Compiler IR
+registries and the production Chapter JSON are built). It implements the
+HIGH-risk findings from the Milestone 3.1 audit. The following fields no
+longer appear in the production Chapter JSON:
+
+| Removed field | Was on | Replaced by |
 |---|---|---|
-| Contents | List of human-readable concept **names** (e.g. `"Photosynthesis"`) | List of canonical concept **IDs** (e.g. `"photosynthesis-chapter-1-a1b2c3"`) |
-| Field name | `concepts` | `concepts` (unchanged) |
-| JSON position / shape | `List[str]` on every `TopicNode` | `List[str]` on every `TopicNode` (unchanged) |
+| `equations[].raw_text` | `Equation` | `equations[].has_raw_text_hint` (bool) |
+| `equations[].vlm_raw_output` | `Equation` | *(moved to `extraction_debug/` artifact; not replaced in production)* |
+| `equations[].vlm_validation_errors` | `Equation` | *(moved to `extraction_debug/` artifact; not replaced in production)* |
+| `educational_objects[].reusable_procedure` † | `EducationalObject` (`formula_or_procedure`) | `educational_objects[].procedure_step_count`, `.procedure_step_marker_types` |
+| `educational_objects[].procedure_steps` † | `EducationalObject` (`formula_or_procedure`) | `educational_objects[].procedure_step_count`, `.procedure_step_marker_types` |
+| `educational_objects[].reusable_syntax` † | `EducationalObject` (`programming_syntax`) | `educational_objects[].code_line_count`, `.has_code_content` |
 
-**Why this is a MAJOR bump, not MINOR/PATCH:** the field's name, position,
-and type are all unchanged, so nothing about the JSON *shape* signals that
-old code needs to change. A consumer written against 1.0.0 that reads
-`topic["concepts"]` expecting display-ready names will now silently receive
-opaque canonical ids instead of erroring — exactly the kind of
-backward-incompatible, easy-to-miss change SemVer's MAJOR component exists
-to flag.
+† Only for objects whose `source == "deterministic"` (built by a
+Recognizer's own `recognize()`). Objects whose `source == "vlm_fallback"`
+already carry an already-paraphrased, word-capped `reusable_procedure`
+(see `semantic_processor._enforce_word_cap`) and are **not** affected —
+`reusable_procedure` can still legitimately appear in the Chapter JSON
+for those objects.
 
-**Why the change was made:** Phase A introduced a chapter-wide canonical
-Concept Registry (one deduplicated record per distinct concept name, each
-with a stable `id`/`urn`). Every other object type that references a concept
-(figures/tables/definitions/etc., where already resolvable) links to it by
-this canonical id, not by re-quoting its name. `TopicNode.concepts` moved to
-the same canonical-reference convention for consistency — see
-`modules/canonical.py::resolve_concept_ids` and
-`schemas/chapter_schema.py::TopicNode.concepts`'s field docstring.
+**Why MAJOR, not MINOR:** per config.py's own SemVer policy, a field
+rename/removal is MAJOR because a consumer written against the old
+schema silently gets nothing back for that field instead of an error.
+None of these fields were ever part of the frozen Pydantic contract
+(`Equation`/`EducationalObject` are both `extra="allow"` — see
+`schemas/canonical_base.py`), so no schema *class* changed, but the
+*data* a consumer could previously read did.
 
-**How to migrate a downstream consumer:**
+**Backward compatibility:** every id/urn/page/bbox/confidence/provenance
+field, and every field the M3.1 audit marked SAFE (§2.4) or LOW risk with
+existing guardrails (§2.3), is completely unchanged. A Phase 2 consumer
+that only reads those fields needs no changes. A consumer that was
+specifically reading one of the removed fields will need to switch to
+the new structural-metadata replacement, or (for `vlm_raw_output`/
+`vlm_validation_errors`, which have no in-band replacement) read the
+new `extraction_debug/` artifact instead — see
+`extraction_debug/persistence.py`.
 
-1. If you need the concept's **display name**, read the new
-   `TopicNode.concept_names` field instead (added in Phase A, holds the same
-   human-readable names `concepts` used to hold). It is positional/parallel
-   in intent to `concepts` but not guaranteed to be index-aligned with it —
-   look the id up in the top-level `concepts[]` array (each `Concept` record
-   has both `id` and `name`) if you need the exact name for a specific id.
-2. If you need to **cross-reference** a topic's concepts against the
-   chapter's `concepts[]` array (e.g. to pull `importance`,
-   `related_concepts`, or the concept's own canonical `id`/`urn`), match on
-   `TopicNode.concepts[i] == Concept.id` — this now works directly, which it
-   did not before (previously you had to match on name, case-insensitively,
-   with no guaranteed uniqueness).
-3. Check `schema_version` on ingest. Any exported chapter JSON with
-   `schema_version` starting `1.` still has concept **names** in
-   `TopicNode.concepts`; `2.` and above has canonical ids.
+**Where the removed content went:** not deleted — every removed value is
+still available, chapter-scoped, in the new `extraction_debug/` OneDrive
+artifact folder (a sibling of `json_out/`, added to
+`modules.json_writer._ARTIFACT_SUBFOLDERS`), written only for chapters
+that actually had something to strip. See
+`extraction_debug/persistence.py`'s module docstring. This is a
+debug/audit-only artifact — never distribute or serve it the way the
+Chapter JSON itself is served, since its entire purpose is to hold the
+content the sanitizer determined was copyright-risky.
 
-**Backward compatibility impact:** breaking for any consumer that reads
-`TopicNode.concepts` as display names without checking `schema_version`
-first. Non-breaking for every other field — no field was renamed, removed,
-or reshaped, and the top-level `concepts[]`, `glossary[]`, and all other
-sections are unaffected.
+**What did NOT change in this milestone** (deferred, MEDIUM/LOW risk —
+see `MILESTONE_3_2_SUMMARY.md`): `semantic_description` on
+Activity/Box/Warning/Note/Example objects, `rules` on
+`accounting_format` objects, table caption length, and `evidence_span`.
+
+## 1.0.0 -> 2.0.0 — Phase A
+
+`TopicNode.concepts` changed meaning from a list of human-readable
+concept NAMES to a list of canonical concept IDs (same field name, same
+`List[str]` shape — the "silent misinterpretation" case MAJOR exists
+for). See `schemas/chapter_schema.py`'s `TopicNode.concepts` docstring
+for the field-level detail.

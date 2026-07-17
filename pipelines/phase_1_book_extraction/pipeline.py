@@ -168,6 +168,8 @@ from compiler.persistence import persist_registries, persist_compiler_metadata
 from knowledge_graph.persistence import persist_knowledge_graph
 from dependency_graph.persistence import persist_dependency_graph
 from validation.persistence import persist_validation_record
+from modules import copyright_sanitizer
+from extraction_debug.persistence import persist_extraction_debug
 from build_metadata.persistence import persist_build_metadata as _persist_build_metadata_record
 # ---- Milestone 5.2: Document Structure Tree (DST) — Artifact
 # Registration & Persistence -------------------------------------------
@@ -314,6 +316,7 @@ def _persist_phase1_artifacts(
     release_readiness_report: Dict[str, Any], release_status: str,
     build_metadata: Dict[str, Any], dependency_graph: Dict[str, Any],
     document_structure_tree=None,
+    copyright_debug_entries: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
     """Phase 1 Output Persistence Enhancement: persists every
     chapter-scoped Phase 1 artifact that, before this function existed,
@@ -419,6 +422,17 @@ def _persist_phase1_artifacts(
     except Exception:
         logger.warning("chapter '%s': failed to persist Build Metadata -- chapter extraction "
                         "outcome is unaffected.", chapter_title, exc_info=True)
+
+    try:
+        persist_extraction_debug(
+            storage, klass, subject, book_slug, chapter_number, chapter_title,
+            debug_entries=copyright_debug_entries or [],
+            output_root=output_root,
+        )
+    except Exception:
+        logger.warning("chapter '%s': failed to persist the Milestone 3.2 extraction-debug "
+                        "record -- chapter extraction outcome is unaffected.",
+                        chapter_title, exc_info=True)
 
 
 def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_order_fallback: int,
@@ -1119,6 +1133,31 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     educational_objects = kg_readiness.enrich_educational_objects(
         educational_objects, blocks, topics_out, structure.chapter_title,
         figures=figures, tables=tables, equations=equations,
+    )
+
+    # ---- Milestone 3.2: Copyright-Safe Serialization ---------------------
+    # Implements the M3.1 audit's HIGH-risk findings (see
+    # modules/copyright_sanitizer.py's own module docstring for the full
+    # field list and reasoning). Deliberately runs HERE, after Stage E
+    # (stage_e_validation.validate_educational_objects, above -- which
+    # reads `reusable_procedure`'s own CONTENT, not just its presence, to
+    # decide whether an object is bare-arithmetic/duplicate junk) and
+    # after kg_readiness.enrich_educational_objects (which only reads
+    # already-SAFE fields: block_id/bbox/page/educational_object_type/
+    # confidence -- never the HIGH-risk prose fields this sanitizes), but
+    # BEFORE `equations`/`educational_objects` are handed to
+    # populate_registries() (Compiler IR) or json_writer.assemble_chapter_json()
+    # (production Chapter JSON) below -- i.e. after every legitimate
+    # deterministic consumer of the raw content has already run, and
+    # before every downstream artifact that must never carry it.
+    #
+    # `equations`/`educational_objects` are reassigned to their sanitized
+    # versions so every later reader in this function (registries,
+    # quality scoring, chapter_dict assembly, DST) sees only the
+    # copyright-safe shape -- there is no second, unsanitized copy left
+    # anywhere in this function's scope.
+    equations, educational_objects, _copyright_debug_entries = (
+        copyright_sanitizer.sanitize_chapter_records(equations, educational_objects)
     )
 
     quality = {
@@ -2308,6 +2347,7 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         build_metadata=build_metadata_result["build_metadata"],
         dependency_graph=dependency_graph_result["dependency_graph"],
         document_structure_tree=document_structure_tree,
+        copyright_debug_entries=_copyright_debug_entries,
     )
     return out_path
 

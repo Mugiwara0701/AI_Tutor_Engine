@@ -46,6 +46,24 @@ MAX_PAGE_BATCH_SIZE = 8
 # --------------------------------------------------------------------------
 MAX_SEMANTIC_DESCRIPTION_WORDS = 30
 
+# Milestone 3.2 (Copyright-Safe Serialization): whether `programming_syntax`
+# Educational Objects built by the DETERMINISTIC recognizers
+# (ProgrammingSyntaxRecognizer/PseudocodeRecognizer,
+# modules/recognizers/programming_recognizers.py) keep their full verbatim
+# `reusable_syntax` code/pseudocode text in the production Chapter JSON, or
+# have it replaced with structural metadata (line count / has-content flag)
+# like every other HIGH-risk field modules/copyright_sanitizer.py handles.
+#
+# Default False (redact): the M3.1 audit explicitly did NOT recommend a
+# single action for this field -- it flagged it "REVIEW REQUIRED... if kept,
+# needs explicit product/legal sign-off, not just a code fix" (a full code
+# snippet from an NCERT CS textbook is a substantial, specific, copyrightable
+# artifact, not a structural fact like a formula). Absent that sign-off,
+# this defaults to the same conservative treatment as every other HIGH-risk
+# finding. Flip only once a real product/legal decision has been made that
+# verbatim code snippets are an intentional, in-scope feature.
+PRESERVE_CODE_SNIPPETS_VERBATIM = os.environ.get("NCERT_PRESERVE_CODE_SNIPPETS", "0") == "1"
+
 # --------------------------------------------------------------------------
 # Stage D: deterministic-extraction / VLM-fallback tuning
 # --------------------------------------------------------------------------
@@ -111,7 +129,21 @@ DEFAULT_LANGUAGE = os.environ.get("NCERT_DEFAULT_LANGUAGE")
 # `concepts` as display names would now get opaque ids instead). See
 # MIGRATIONS.md for the full migration note and schemas/chapter_schema.py's
 # TopicNode.concepts docstring for the field-level detail.
-SCHEMA_VERSION = "2.0.0"
+#
+# 2.0.0 -> 3.0.0 (Milestone 3.2, Copyright-Safe Serialization): several
+# fields that used to reach the production Chapter JSON are REMOVED
+# outright (`Equation.raw_text`, `Equation.vlm_raw_output`,
+# `Equation.vlm_validation_errors`, and, on deterministically-sourced
+# `formula_or_procedure`/`programming_syntax` Educational Objects,
+# `reusable_procedure`/`procedure_steps`/`reusable_syntax`), replaced with
+# structural-metadata-only fields (`Equation.has_raw_text_hint`,
+# `procedure_step_count`/`procedure_step_marker_types`,
+# `code_line_count`/`has_code_content`). A consumer reading any of the
+# removed fields today would silently start getting nothing instead of an
+# error -- exactly the MAJOR case per this policy's own definition ("a
+# field is renamed/removed"). See modules/copyright_sanitizer.py and
+# MIGRATIONS.md for the full field-by-field mapping and reasoning.
+SCHEMA_VERSION = "3.0.0"
 
 # --------------------------------------------------------------------------
 # Milestone T1: structural (keyword-independent) TOC page detection
