@@ -4,6 +4,54 @@ Tracks `config.SCHEMA_VERSION` (MAJOR.MINOR.PATCH, per config.py's own
 policy comment) history for the exported Chapter JSON
 (`schemas/chapter_schema.py: ChapterJSON`).
 
+## 3.0.0 -> 4.0.0 — Milestone 3.3, Copyright-Safe Serialization cont'd
+
+**Type:** MAJOR (a field removed, plus two fields whose meaning changes
+without being removed — see below).
+
+**What changed:** the MEDIUM/LOW M3.1 audit findings M3.2 deferred (see
+"What did NOT change in this milestone" at the bottom of the 3.0.0 entry
+below) are now implemented, at the same `copyright_sanitizer.py`
+checkpoint in `pipeline.py` as M3.2's findings:
+
+| Field | Was on | Change |
+|---|---|---|
+| `educational_objects[].rules` | `EducationalObject` (`accounting_format`, `format_type == "accounting_rule"`) † | **Removed.** Replaced by `.matched_rule_count`, `.matched_rule_types` |
+| `activities[].semantic_description`, `boxes[]`, `warnings[]`, `notes[]`, `examples[]` (same field) | those five block kinds | **Meaning changed, not removed.** Always `""` now (previously a raw, word-capped-but-still-copied excerpt of the block's own source text); paired with a new `.has_semantic_description_hint` (bool) |
+| `figures[].caption` / `.title`, `diagrams[]`, `tables[]` (same two fields) | those three region kinds | **Meaning changed, not removed.** Capped at `config.MAX_CAPTION_WORDS` (20) instead of unbounded PDF/OCR-sourced text |
+
+† Only for objects whose `source == "deterministic"`, same convention as
+every other M3.2/M3.3 finding.
+
+**Why MAJOR:** `rules` removal is the same "consumer silently gets
+nothing instead of an error" MAJOR case 2.0.0 -> 3.0.0 defines. The two
+meaning-changed fields are also MAJOR, not MINOR/PATCH, because a
+consumer that was reading `semantic_description` for its (copied) prose,
+or reading an overlong `caption`/`title` in full, now silently gets a
+truncated or empty value instead — same silent-behavior-change concern
+the policy's MAJOR case exists for, even though the field itself still
+exists and still type-checks.
+
+**Backward compatibility:** every id/urn/page/bbox/confidence/provenance
+field, and every field not listed above, is unchanged. `procedure_type`,
+`format_type`, `columns` (on `journal_entry`-type `accounting_format`
+objects) are untouched — only `accounting_rule`-type objects' `rules`
+field is affected. A consumer that only reads full, short captions or
+already treats `semantic_description` as advisory needs no changes.
+
+**Where the removed/truncated content went:** same `extraction_debug/`
+artifact as every M3.2 finding — `modules/copyright_sanitizer.py`'s new
+`sanitize_content_blocks()` and `sanitize_visual_captions()` functions
+follow the identical "strip in production, stash in debug, only for
+records that actually had something removed" pattern as
+`sanitize_equations()`/`sanitize_educational_objects()`.
+
+**What remains open:** `evidence_span` (M3.1 §2.1 LOW) — still never
+populated anywhere in this checkout, so there is nothing to sanitize yet.
+Flagged for whoever wires it up to add it to `copyright_sanitizer.py` (or
+`structural_validator._BANNED_PROSE_FIELD_NAMES`/`_ALLOWED_PROSE_FIELDS`)
+at that time.
+
 ## 2.0.0 -> 3.0.0 — Milestone 3.2, Copyright-Safe Serialization
 
 **Type:** MAJOR (fields removed — see below).

@@ -83,6 +83,58 @@ checks in modules/stage_e_validation.py read `reusable_procedure`'s
 *content*, not just its presence, to decide whether an object should be
 dropped) — sanitizing any earlier would silently break that filtering.
 See pipeline.py's own call-site comment for the exact ordering guarantee.
+
+--------------------------------------------------------------------------
+Milestone 3.3 additions (MEDIUM/LOW findings deferred by M3.2, see
+MILESTONE_3_2_SUMMARY.md §6 "Recommendations deferred to future
+milestones"):
+
+  5. `semantic_description` on Activity/Box/Warning/Note/Example blocks
+     (`pipeline.py`'s `_finalize_blocks()`). Previously populated with
+     `_enforce_word_cap(body[:200])` — a raw character-slice of the
+     block's own source text, still copied prose even after the word
+     cap trims it (the cap shortens copied text, it does not make it
+     non-copied). Figures/Tables/Equations never had this problem: their
+     `semantic_description`/`semantic_meaning` stay `""` at Phase 1
+     pending real VLM paraphrase in a later phase.
+     -> `sanitize_content_blocks()` REMOVES the raw description from the
+     production record (same "not silently lost, moved to debug" pattern
+     as every other field here) and replaces it with `""` plus a boolean
+     `has_semantic_description_hint` — i.e. brought in line with how
+     Figures/Tables/Equations already behave, per M3.1's own recommended
+     action for this finding.
+
+  6. `rules` on `accounting_format` Educational Objects specifically of
+     `format_type == "accounting_rule"` (`AccountingRuleRecognizer` —
+     modules/recognizers/accounting_recognizers.py). Each entry is the
+     *entire raw line* that matched the golden-rule regex, not just the
+     matched phrase, and the list is unbounded.
+     -> REPLACED WITH STRUCTURAL METADATA: `matched_rule_count` +
+     `matched_rule_types` (which golden-rule *category* each line
+     matched — "debit_receiver"/"credit_giver"/"debit_comes_in"/
+     "credit_goes_out"/"debit_expenses_losses"/"credit_incomes_gains"/
+     "other" — never the line's own words), mirroring the
+     `procedure_step_marker_types` treatment finding 1 already got.
+
+  7. `caption`/`title` on Figure/Diagram/Table records (`pipeline.py`,
+     sourced from `modules/layout_detector.py`'s `_nearby_caption()` and
+     the table caption-only fallback — both raw PDF/OCR line text with
+     no upstream length limit).
+     -> `sanitize_visual_captions()` applies a defensive word cap
+     (`config.MAX_CAPTION_WORDS`) via the same `_enforce_word_cap`-style
+     truncation Figures/Tables/Equations' AI-paraphrased fields already
+     use — this is a defensive ceiling on a short factual label, not a
+     paraphrase step, so (unlike findings 1-5 above) the field is
+     truncated in place rather than replaced with metadata. The
+     untruncated original is moved to the debug artifact, and ONLY for
+     records that actually exceeded the cap (the common case — a normal
+     "Fig 3.2: ..." caption — produces no debug entry at all).
+
+Deliberately NOT done here (left open, see this module's own limits):
+  - `evidence_span` is never populated anywhere in this checkout (M3.1
+    §2.1 LOW finding) — nothing to sanitize yet; flagged for whoever
+    wires it up to add it to `_BANNED_PROSE_FIELD_NAMES` or
+    `_ALLOWED_PROSE_FIELDS` at that time, not before.
 """
 from __future__ import annotations
 
@@ -156,6 +208,64 @@ def _procedure_structural_metadata(procedure_steps: List[str]) -> Dict[str, Any]
         "procedure_step_count": len(steps),
         "procedure_step_marker_types": [_step_marker_type(s) for s in steps],
     }
+
+
+# --------------------------------------------------------------------------
+# Accounting golden-rule classification (`rules` -> structural metadata).
+# Mirrors the six alternatives in
+# modules/recognizers/accounting_recognizers.py's own `_GOLDEN_RULE_RE`,
+# but only ever reports WHICH RULE CATEGORY a matched line belongs to,
+# never the line's own text.
+# --------------------------------------------------------------------------
+_DEBIT_RECEIVER_RE = re.compile(r"\bdebit the receiver\b", re.I)
+_CREDIT_GIVER_RE = re.compile(r"\bcredit the giver\b", re.I)
+_DEBIT_COMES_IN_RE = re.compile(r"\bdebit what comes in\b", re.I)
+_CREDIT_GOES_OUT_RE = re.compile(r"\bcredit what goes out\b", re.I)
+_DEBIT_EXPENSES_RE = re.compile(r"\bdebit all expenses(?: and losses)?\b", re.I)
+_CREDIT_INCOMES_RE = re.compile(r"\bcredit all incomes?(?: and gains)?\b", re.I)
+
+
+def _accounting_rule_type(rule_text: str) -> str:
+    """Classifies ONE matched golden-rule line's category without
+    retaining any of its prose. Order matters (first match wins), same
+    convention as `_step_marker_type` above."""
+    s = rule_text.strip()
+    if _DEBIT_RECEIVER_RE.search(s):
+        return "debit_receiver"
+    if _CREDIT_GIVER_RE.search(s):
+        return "credit_giver"
+    if _DEBIT_COMES_IN_RE.search(s):
+        return "debit_comes_in"
+    if _CREDIT_GOES_OUT_RE.search(s):
+        return "credit_goes_out"
+    if _DEBIT_EXPENSES_RE.search(s):
+        return "debit_expenses_losses"
+    if _CREDIT_INCOMES_RE.search(s):
+        return "credit_incomes_gains"
+    return "other"
+
+
+def _accounting_rules_structural_metadata(rules: List[str]) -> Dict[str, Any]:
+    """Turns a list of raw golden-rule lines into copyright-safe
+    structural metadata: how many rule lines matched and which category
+    each one belongs to — never the line's own words."""
+    lines = [r for r in (rules or []) if isinstance(r, str) and r.strip()]
+    return {
+        "matched_rule_count": len(lines),
+        "matched_rule_types": [_accounting_rule_type(r) for r in lines],
+    }
+
+
+def _enforce_word_cap_local(text: str, max_words: int) -> str:
+    """Same "split on whitespace, keep the first N words, rejoin with a
+    single space" logic as `semantic_processor._enforce_word_cap` —
+    reimplemented here (not imported) so this module keeps its own
+    "no I/O, no external dependency" guarantee (see module docstring)
+    intact; semantic_processor.py unconditionally imports fitz/PIL at
+    module load time for its VLM page-rendering functions, which this
+    caption-length check has no need of."""
+    words = (text or "").split()
+    return " ".join(words[:max_words])
 
 
 def _code_structural_metadata(code_text: str) -> Dict[str, Any]:
@@ -242,7 +352,8 @@ def sanitize_equations(equations: List[Dict[str, Any]]) -> SanitizeReport:
 
 def sanitize_educational_objects(objects: List[Dict[str, Any]]) -> SanitizeReport:
     """Implements M3.1 §2.1 findings 1 (`reusable_procedure`/
-    `procedure_steps`) and 2 (`reusable_syntax`).
+    `procedure_steps`), 2 (`reusable_syntax`), and Milestone 3.3 finding 6
+    (`rules` on `accounting_format`/`accounting_rule` objects).
 
     Only touches objects whose `source` is `"deterministic"` (i.e. built
     by a Recognizer's own `recognize()`, not its `vlm_fallback()`) —
@@ -275,6 +386,14 @@ def sanitize_educational_objects(objects: List[Dict[str, Any]]) -> SanitizeRepor
                 report.fields_removed_count += 1
             clean.update(_procedure_structural_metadata(procedure_steps or []))
 
+        if is_deterministic and educational_object_type == "accounting_format" and (
+                clean.get("format_type") == "accounting_rule") and "rules" in clean:
+            rules = clean.pop("rules", None)
+            if rules:
+                debug_payload["rules"] = rules
+                report.fields_removed_count += 1
+            clean.update(_accounting_rules_structural_metadata(rules or []))
+
         if is_deterministic and educational_object_type == "programming_syntax" and "reusable_syntax" in clean:
             if config.PRESERVE_CODE_SNIPPETS_VERBATIM:
                 # Documented product/legal decision (see module docstring
@@ -293,6 +412,98 @@ def sanitize_educational_objects(objects: List[Dict[str, Any]]) -> SanitizeRepor
                 "record_type": "educational_object",
                 "record_key": key,
                 "educational_object_type": educational_object_type,
+                **debug_payload,
+            })
+    return report
+
+
+def sanitize_content_blocks(blocks: List[Dict[str, Any]], record_type: str = "content_block") -> SanitizeReport:
+    """Milestone 3.3, finding 5: Activity/Box/Warning/Note/Example records
+    (`pipeline.py`'s `_finalize_blocks()`), whose `semantic_description`
+    is a raw, word-capped-but-still-copied slice of the block's own
+    source text (`_enforce_word_cap(body[:200])`), not an AI paraphrase.
+
+    Brings these five block kinds in line with how Figures/Tables/
+    Equations already behave at Phase 1 (per M3.1's recommended action:
+    "route through the same paraphrase+cap path ... instead of raw-
+    truncation") — since no real paraphrase step exists for these blocks
+    yet, the safe interim behavior is the same one Figures/Tables/
+    Equations already use: leave the field empty rather than populate it
+    with copied prose, and record only that a description candidate
+    existed (`has_semantic_description_hint`) so a future paraphrase
+    step (or Phase 2) knows there was something to describe.
+
+    `record_type` is stamped onto each debug entry so a debug-artifact
+    consumer can tell an activity's stripped description from a note's
+    (pipeline.py passes "activity"/"box"/"warning"/"note"/"example")."""
+    report = SanitizeReport()
+    for idx, block in enumerate(blocks or []):
+        clean = dict(block)
+        key = _record_key(clean, idx)
+        debug_payload: Dict[str, Any] = {}
+
+        description = clean.pop("semantic_description", None)
+        if isinstance(description, str) and description.strip():
+            debug_payload["semantic_description"] = description
+            report.fields_removed_count += 1
+        clean["semantic_description"] = ""
+        clean["has_semantic_description_hint"] = bool(description and description.strip())
+
+        report.sanitized.append(clean)
+        if debug_payload:
+            report.debug_entries.append({
+                "record_type": record_type,
+                "record_key": key,
+                **debug_payload,
+            })
+    return report
+
+
+def sanitize_visual_captions(records: List[Dict[str, Any]], record_type: str) -> SanitizeReport:
+    """Milestone 3.3, finding 7: Figure/Diagram/Table `caption`/`title`
+    fields, sourced directly from nearby PDF/OCR line text
+    (`modules/layout_detector.py`'s `_nearby_caption()` and the table
+    caption-only fallback) with no upstream length limit.
+
+    Unlike findings 1/2/3/5/6 above, a caption is a legitimate short
+    factual label (a figure/table number and title) that Phase 2 needs
+    verbatim to cross-reference against the source — so this does NOT
+    reduce it to structural metadata. It applies the same style of
+    defensive word cap every AI-paraphrased field already gets
+    (`semantic_processor._enforce_word_cap`'s own "split on whitespace,
+    keep the first N words" logic, reimplemented locally below rather
+    than imported — semantic_processor pulls in fitz/PIL for page
+    rendering, which this otherwise-pure, no-I/O, no-external-dependency
+    module has no other reason to need), capped here at
+    `config.MAX_CAPTION_WORDS` instead of `MAX_SEMANTIC_DESCRIPTION_WORDS`,
+    and truncates in place. The untruncated original is moved to the
+    debug artifact, and only for records that actually exceeded the cap —
+    an ordinary short caption produces no debug entry and is returned
+    completely unchanged.
+
+    `record_type` is stamped onto each debug entry the same way
+    `sanitize_content_blocks` does (pipeline.py passes
+    "figure"/"diagram"/"table")."""
+    report = SanitizeReport()
+    for idx, record in enumerate(records or []):
+        clean = dict(record)
+        key = _record_key(clean, idx)
+        debug_payload: Dict[str, Any] = {}
+
+        for field in ("caption", "title"):
+            value = clean.get(field)
+            if isinstance(value, str) and value.strip():
+                capped = _enforce_word_cap_local(value, config.MAX_CAPTION_WORDS)
+                if capped != value:
+                    debug_payload[field] = value
+                    report.fields_removed_count += 1
+                    clean[field] = capped
+
+        report.sanitized.append(clean)
+        if debug_payload:
+            report.debug_entries.append({
+                "record_type": record_type,
+                "record_key": key,
                 **debug_payload,
             })
     return report

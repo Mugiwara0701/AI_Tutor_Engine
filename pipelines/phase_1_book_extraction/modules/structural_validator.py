@@ -133,7 +133,7 @@ import logging
 
 from schemas.chapter_schema import ChapterJSON
 from modules.topic_linker import TOPIC_REVERSE_FIELDS
-from config import MAX_SEMANTIC_DESCRIPTION_WORDS
+from config import MAX_SEMANTIC_DESCRIPTION_WORDS, MAX_CAPTION_WORDS
 
 logger = logging.getLogger("ncert_pipeline.structural_validator")
 
@@ -1015,6 +1015,15 @@ _ALLOWED_PROSE_FIELDS: Dict[str, int] = {
     "visual_summary": MAX_SEMANTIC_DESCRIPTION_WORDS,
     "semantic_description": MAX_SEMANTIC_DESCRIPTION_WORDS,
     "semantic_meaning": MAX_SEMANTIC_DESCRIPTION_WORDS,
+    # Milestone 3.3: Figure/Table/Diagram `caption`/`title` are PDF/OCR-
+    # sourced short labels, not AI paraphrase -- but they belong in this
+    # dict for the same reason semantic_meaning etc. do: `modules.
+    # copyright_sanitizer.sanitize_visual_captions` now enforces
+    # MAX_CAPTION_WORDS at generation time, and this is the "never trust
+    # the generator" second gate that WARNs if one ever slips through over
+    # cap, instead of that leak going undetected.
+    "caption": MAX_CAPTION_WORDS,
+    "title": MAX_CAPTION_WORDS,
 }
 
 _BANNED_PROSE_FIELD_NAMES: Set[str] = {

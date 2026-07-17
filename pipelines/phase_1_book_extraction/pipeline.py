@@ -1006,6 +1006,18 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
                            confidence=eq_record["confidence"])
 
     # ---- content blocks -> final records -- restored ----
+    # Milestone 3.3 fix: this used to set `semantic_description` directly
+    # from `_enforce_word_cap(body[:200])` -- a raw character-slice of the
+    # block's own source text. Capping the word count shortens copied
+    # prose, it does not stop it being copied prose, so that was still a
+    # source-text leak (M3.1 §2.1 MEDIUM finding, deferred by M3.2). The
+    # raw excerpt is now handed to `copyright_sanitizer.sanitize_content_blocks`
+    # below instead, which strips it into the debug artifact and leaves
+    # `semantic_description` empty -- the same interim behavior Figures/
+    # Tables/Equations already have at Phase 1, pending a real paraphrase
+    # step. `_body_for_semantic` itself never reaches the sanitizer or the
+    # production record; only its capped preview does, and only as debug
+    # payload.
     def _finalize_blocks(raw_list):
         out = []
         for item in raw_list:
@@ -1158,6 +1170,45 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
     # anywhere in this function's scope.
     equations, educational_objects, _copyright_debug_entries = (
         copyright_sanitizer.sanitize_chapter_records(equations, educational_objects)
+    )
+
+    # ---- Milestone 3.3: Copyright-Safe Serialization, cont'd -------------
+    # The MEDIUM/LOW findings M3.2 deferred (see copyright_sanitizer.py's
+    # module docstring, "Milestone 3.3 additions"). Run at the same
+    # checkpoint as the M3.2 call directly above, for the same reason: by
+    # this point Stage E and KG-readiness have already read whatever they
+    # needed from `figures`/`tables`/`diagrams`, and nothing downstream of
+    # here (registries, chapter_dict assembly, DST) may see raw content-
+    # block descriptions or uncapped captions. Every list here is mutated
+    # in place via .append() from where it was first built, never
+    # reassigned, so these are still the same objects that will be
+    # written into the production Chapter JSON below -- reassigning each
+    # to its sanitized version keeps that "no second unsanitized copy"
+    # guarantee.
+    activities_report = copyright_sanitizer.sanitize_content_blocks(activities, record_type="activity")
+    boxes_report = copyright_sanitizer.sanitize_content_blocks(boxes, record_type="box")
+    warnings_report = copyright_sanitizer.sanitize_content_blocks(warnings_list, record_type="warning")
+    notes_report = copyright_sanitizer.sanitize_content_blocks(notes, record_type="note")
+    examples_report = copyright_sanitizer.sanitize_content_blocks(examples, record_type="example")
+    activities, boxes, warnings_list, notes, examples = (
+        activities_report.sanitized, boxes_report.sanitized, warnings_report.sanitized,
+        notes_report.sanitized, examples_report.sanitized,
+    )
+
+    figures_report = copyright_sanitizer.sanitize_visual_captions(figures, record_type="figure")
+    diagrams_report = copyright_sanitizer.sanitize_visual_captions(diagrams, record_type="diagram")
+    tables_report = copyright_sanitizer.sanitize_visual_captions(tables, record_type="table")
+    figures, diagrams, tables = (
+        figures_report.sanitized, diagrams_report.sanitized, tables_report.sanitized,
+    )
+
+    _copyright_debug_entries = (
+        _copyright_debug_entries
+        + activities_report.debug_entries + boxes_report.debug_entries
+        + warnings_report.debug_entries + notes_report.debug_entries
+        + examples_report.debug_entries
+        + figures_report.debug_entries + diagrams_report.debug_entries
+        + tables_report.debug_entries
     )
 
     quality = {

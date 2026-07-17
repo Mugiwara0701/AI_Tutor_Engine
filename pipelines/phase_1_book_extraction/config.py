@@ -46,6 +46,18 @@ MAX_PAGE_BATCH_SIZE = 8
 # --------------------------------------------------------------------------
 MAX_SEMANTIC_DESCRIPTION_WORDS = 30
 
+# Milestone 3.3 (Copyright-Safe Serialization, cont'd): defensive word cap
+# for Figure/Table/Diagram `caption`/`title` fields. These are sourced
+# directly from nearby PDF/OCR line text (modules/layout_detector.py's
+# `_nearby_caption` and the table caption-only fallback) with no upstream
+# length limit -- almost always a short label ("Fig 3.2: ...") but nothing
+# stops a mis-detected region from picking up a full sentence or more of
+# body text as its "caption". Kept generous relative to
+# MAX_SEMANTIC_DESCRIPTION_WORDS because a caption is expected to legitimately
+# quote a short, factual label (a figure/table number and title), not
+# prose -- this is a defensive ceiling, not a paraphrase cap.
+MAX_CAPTION_WORDS = 20
+
 # Milestone 3.2 (Copyright-Safe Serialization): whether `programming_syntax`
 # Educational Objects built by the DETERMINISTIC recognizers
 # (ProgrammingSyntaxRecognizer/PseudocodeRecognizer,
@@ -143,7 +155,21 @@ DEFAULT_LANGUAGE = os.environ.get("NCERT_DEFAULT_LANGUAGE")
 # error -- exactly the MAJOR case per this policy's own definition ("a
 # field is renamed/removed"). See modules/copyright_sanitizer.py and
 # MIGRATIONS.md for the full field-by-field mapping and reasoning.
-SCHEMA_VERSION = "3.0.0"
+#
+# 3.0.0 -> 4.0.0 (Milestone 3.3, Copyright-Safe Serialization cont'd): the
+# MEDIUM/LOW findings M3.2 deferred. `educational_objects[].rules` (on
+# `accounting_format`/`accounting_rule` objects) is REMOVED outright,
+# replaced with `matched_rule_count`/`matched_rule_types` -- the same
+# MAJOR case as 2.0.0 -> 3.0.0 above, for the same reason. Two more
+# fields change MEANING without being removed (still MAJOR, since a
+# consumer relying on the old meaning silently gets different data, not
+# an error): content-block (`activities`/`boxes`/`warnings`/`notes`/
+# `examples`) `semantic_description` is now always `""` at Phase 1
+# (paired with a new `has_semantic_description_hint` bool) instead of a
+# raw-truncated source-text excerpt; Figure/Diagram/Table `caption`/
+# `title` are now capped at MAX_CAPTION_WORDS instead of unbounded. See
+# modules/copyright_sanitizer.py and MIGRATIONS.md for the full mapping.
+SCHEMA_VERSION = "4.0.0"
 
 # --------------------------------------------------------------------------
 # Milestone T1: structural (keyword-independent) TOC page detection

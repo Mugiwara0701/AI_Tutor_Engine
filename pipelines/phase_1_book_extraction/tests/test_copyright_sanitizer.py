@@ -87,6 +87,56 @@ def deterministic_syntax_object(**overrides):
     return base
 
 
+def deterministic_accounting_rule_object(**overrides):
+    base = {
+        "id": "obj-5",
+        "block_id": "block-5",
+        "block_type": "Golden Rule Box",
+        "priority": "high",
+        "educational_object_type": "accounting_format",
+        "source": "deterministic",
+        "confidence": 0.85,
+        "format_type": "accounting_rule",
+        "rules": [
+            "Debit the receiver, Credit the giver",
+            "Debit what comes in, Credit what goes out",
+        ],
+    }
+    base.update(overrides)
+    return base
+
+
+def content_block(**overrides):
+    base = {
+        "id": "activity-1",
+        "urn": "urn:ncert:activity-1",
+        "object_type": "activity",
+        "activity_type": "class_activity",
+        "page": 12,
+        "semantic_description": "Students form groups and measure the length of the classroom using a metre "
+                                 "scale, recording each group's reading on the board before discussing sources "
+                                 "of error.",
+        "educational_purpose": "",
+    }
+    base.update(overrides)
+    return base
+
+
+def visual_region(**overrides):
+    base = {
+        "id": "figure-1",
+        "urn": "urn:ncert:figure-1",
+        "object_type": "figure",
+        "page": 7,
+        "title": "",
+        "caption": "Fig 3.2 A simple pendulum",
+        "figure_type": "figure",
+        "confidence": 0.5,
+    }
+    base.update(overrides)
+    return base
+
+
 # --------------------------------------------------------------------------
 # sanitize_equations
 # --------------------------------------------------------------------------
@@ -259,6 +309,150 @@ class TestSanitizeSyntaxObjects:
         clean = report.sanitized[0]
         assert clean["code_line_count"] == 0
         assert clean["has_code_content"] is False
+        assert report.debug_entries == []
+
+
+# --------------------------------------------------------------------------
+# sanitize_educational_objects — rules (accounting_format/accounting_rule)
+# --------------------------------------------------------------------------
+class TestSanitizeAccountingRuleObjects:
+    def test_deterministic_rules_stripped_to_structural_metadata(self):
+        report = cs.sanitize_educational_objects([deterministic_accounting_rule_object()])
+        clean = report.sanitized[0]
+        assert "rules" not in clean
+        assert clean["matched_rule_count"] == 2
+        assert clean["matched_rule_types"] == ["debit_receiver", "debit_comes_in"]
+
+    def test_debug_entry_carries_original_rule_lines(self):
+        obj = deterministic_accounting_rule_object()
+        report = cs.sanitize_educational_objects([obj])
+        entry = report.debug_entries[0]
+        assert entry["record_type"] == "educational_object"
+        assert entry["rules"] == obj["rules"]
+
+    def test_all_six_rule_categories_classified(self):
+        obj = deterministic_accounting_rule_object(rules=[
+            "Debit the receiver",
+            "Credit the giver",
+            "Debit what comes in",
+            "Credit what goes out",
+            "Debit all expenses and losses",
+            "Credit all incomes and gains",
+            "Some unrelated line that happens to be in the list",
+        ])
+        report = cs.sanitize_educational_objects([obj])
+        assert report.sanitized[0]["matched_rule_types"] == [
+            "debit_receiver", "credit_giver", "debit_comes_in", "credit_goes_out",
+            "debit_expenses_losses", "credit_incomes_gains", "other",
+        ]
+
+    def test_non_accounting_rule_format_type_untouched(self):
+        obj = deterministic_accounting_rule_object(format_type="journal_entry", rules=None)
+        obj.pop("rules")
+        obj["columns"] = ["date", "particulars", "debit", "credit"]
+        report = cs.sanitize_educational_objects([obj])
+        assert report.sanitized[0] == obj
+        assert report.debug_entries == []
+
+    def test_does_not_mutate_input(self):
+        obj = deterministic_accounting_rule_object()
+        original = copy.deepcopy(obj)
+        cs.sanitize_educational_objects([obj])
+        assert obj == original
+
+
+# --------------------------------------------------------------------------
+# sanitize_content_blocks
+# --------------------------------------------------------------------------
+class TestSanitizeContentBlocks:
+    def test_raw_description_removed_and_replaced_with_empty_string(self):
+        report = cs.sanitize_content_blocks([content_block()], record_type="activity")
+        clean = report.sanitized[0]
+        assert clean["semantic_description"] == ""
+        assert clean["has_semantic_description_hint"] is True
+
+    def test_debug_entry_carries_original_description(self):
+        block = content_block()
+        report = cs.sanitize_content_blocks([block], record_type="activity")
+        entry = report.debug_entries[0]
+        assert entry["record_type"] == "activity"
+        assert entry["record_key"] == "activity-1"
+        assert entry["semantic_description"] == block["semantic_description"]
+
+    def test_empty_description_means_no_debug_entry_and_false_hint(self):
+        block = content_block(semantic_description="")
+        report = cs.sanitize_content_blocks([block], record_type="note")
+        assert report.debug_entries == []
+        assert report.sanitized[0]["has_semantic_description_hint"] is False
+
+    def test_other_fields_untouched(self):
+        block = content_block()
+        report = cs.sanitize_content_blocks([block], record_type="activity")
+        clean = report.sanitized[0]
+        assert clean["id"] == block["id"]
+        assert clean["activity_type"] == block["activity_type"]
+        assert clean["page"] == block["page"]
+
+    def test_does_not_mutate_input(self):
+        block = content_block()
+        original = copy.deepcopy(block)
+        cs.sanitize_content_blocks([block], record_type="activity")
+        assert block == original
+
+    def test_empty_list(self):
+        report = cs.sanitize_content_blocks([], record_type="box")
+        assert report.sanitized == []
+        assert report.debug_entries == []
+
+
+# --------------------------------------------------------------------------
+# sanitize_visual_captions
+# --------------------------------------------------------------------------
+class TestSanitizeVisualCaptions:
+    def test_short_caption_passes_through_unchanged(self):
+        region = visual_region()
+        report = cs.sanitize_visual_captions([region], record_type="figure")
+        clean = report.sanitized[0]
+        assert clean["caption"] == region["caption"]
+        assert report.debug_entries == []
+
+    def test_overlong_caption_truncated_and_captured_in_debug(self):
+        long_caption = " ".join(f"word{i}" for i in range(40))
+        region = visual_region(caption=long_caption)
+        report = cs.sanitize_visual_captions([region], record_type="figure")
+        clean = report.sanitized[0]
+        assert clean["caption"] != long_caption
+        assert len(clean["caption"].split()) <= config.MAX_CAPTION_WORDS
+        entry = report.debug_entries[0]
+        assert entry["record_type"] == "figure"
+        assert entry["caption"] == long_caption
+
+    def test_overlong_title_truncated_independently_of_caption(self):
+        long_title = " ".join(f"t{i}" for i in range(30))
+        region = visual_region(title=long_title)
+        report = cs.sanitize_visual_captions([region], record_type="table")
+        clean = report.sanitized[0]
+        assert len(clean["title"].split()) <= config.MAX_CAPTION_WORDS
+        assert clean["caption"] == region["caption"]  # unaffected
+        assert report.debug_entries[0]["title"] == long_title
+
+    def test_empty_caption_and_title_untouched(self):
+        region = visual_region(caption="", title="")
+        report = cs.sanitize_visual_captions([region], record_type="diagram")
+        clean = report.sanitized[0]
+        assert clean["caption"] == "" and clean["title"] == ""
+        assert report.debug_entries == []
+
+    def test_does_not_mutate_input(self):
+        long_caption = " ".join(f"word{i}" for i in range(40))
+        region = visual_region(caption=long_caption)
+        original = copy.deepcopy(region)
+        cs.sanitize_visual_captions([region], record_type="figure")
+        assert region == original
+
+    def test_empty_list(self):
+        report = cs.sanitize_visual_captions([], record_type="table")
+        assert report.sanitized == []
         assert report.debug_entries == []
 
 
