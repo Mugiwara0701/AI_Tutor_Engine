@@ -12,6 +12,7 @@ import {
   BarChart3,
   Search,
   Settings,
+  UsersRound,
 } from "lucide-react";
 
 // Single source of truth for sidebar navigation AND breadcrumb generation.
@@ -88,7 +89,7 @@ export const SIDEBAR_NAV = [
   {
     key: "employee",
     label: "Employee",
-    icon: Settings,
+    icon: UsersRound,
     path: "/employee",
     // Only admin/manager get the Settings nav item — plain "user" accounts
     // have no employee-management or workspace settings to see. Items
