@@ -47,14 +47,19 @@ only reports, via `status: "pass"` (zero errors) or `status: "fail"`
 (one or more errors) in the returned report -- what pipeline.py or a
 future Phase B5 does with that status is out of this module's scope.
 
-PIPELINE INTEGRATION: validate_compiler_state(manager, *, topics=None) is
-the one pipeline.py integration point, mirroring resolve_references()'s
-and resolve_relationships()'s own shape exactly. It must run AFTER
-compiler.relationships.resolve_relationships() (so the "relationships"
-registry already exists and is fully populated to validate) and BEFORE
-compiler_state.set_current_registry_manager() (so validation genuinely
-inspects "the IR as it will be handed to later phases", not a stale
-snapshot) -- see pipeline.py's own integration comment at the call site.
+PIPELINE INTEGRATION: validate_compiler_state(manager, *, topics=None,
+page_count=None) is the one pipeline.py integration point, mirroring
+resolve_references()'s and resolve_relationships()'s own shape exactly.
+It must run AFTER compiler.relationships.resolve_relationships() (so the
+"relationships" registry already exists and is fully populated to
+validate) and BEFORE compiler_state.set_current_registry_manager() (so
+validation genuinely inspects "the IR as it will be handed to later
+phases", not a stale snapshot) -- see pipeline.py's own integration
+comment at the call site. `page_count` is optional (mirrors every other
+`topics`-optional check's "checkable if supplied, `not_checked`/skipped
+otherwise, never assumed" convention) and is threaded through only to
+`_validate_provenance_integrity`, the one check that needs a chapter's
+own page range to catch a `source_page` that points outside it.
 The returned report is handed to compiler_state.set_current_validation_
 report() immediately after (a Phase B4 addition to compiler/state.py --
 see that module's own docstring), making it "part of the compiler
@@ -65,7 +70,9 @@ REPORT STRUCTURE: validate_compiler_state() returns a plain dict (see
 ValidationReport.to_dict() below) with: `version`, `generated_at`,
 `status` ("pass"/"fail"), `errors` (list), `warnings` (list),
 `statistics`, `registry_summary`, `reference_summary`,
-`relationship_summary`, `integrity_summary`. This dict is the compiler
+`relationship_summary`, `integrity_summary`, `hierarchy_summary`,
+`topic_linking_summary`, `graph_summary`, `provenance_summary`,
+`structural_completeness_summary`. This dict is the compiler
 artifact this phase produces -- a diagnostic report, not educational
 content, never serialized into Chapter JSON (see module docstring's
 "does not touch ... ChapterJSON" line above).
@@ -92,6 +99,7 @@ from .relationships import (
     RELATIONSHIP_TYPES,
     _relationship_id,
 )
+from modules.topic_linker import TOPIC_REVERSE_FIELDS
 
 # --------------------------------------------------------------------------
 # Static, deterministic constants
@@ -130,6 +138,59 @@ _RELATIONSHIP_ENDPOINT_REGISTRY: Dict[str, str] = {
     "table": "tables",
     "activity": "activities",
 }
+
+# --------------------------------------------------------------------------
+# MILESTONE 2 additions -- Structural Validation (see module docstring
+# addendum below). These constants back the four new validation
+# categories (Hierarchy, Topic Linking, Graph Integrity, Provenance) and
+# reuse, rather than redefine, facts earlier frozen phases already
+# established.
+# --------------------------------------------------------------------------
+
+# object_type string (schemas/chapter_schema.py's CanonicalObjectBase.
+# object_type, set by modules/canonical.py::canonical_fields()) that a
+# well-formed item in a given RegistryManager registry is expected to
+# carry. Used only for the "inconsistent object ownership" structural
+# check (an item physically stored under, e.g., the "figures" registry
+# but whose own object_type says "table") -- never used to move or
+# re-key an item. "topics" is intentionally absent: TopicRegistry stores
+# a canonical-enveloped *copy* with object_type="topic" (see compiler/
+# registries.py's own "TOPIC REGISTRY" docstring section), which this
+# module already treats like every other registry for this one check.
+OBJECT_TYPE_BY_REGISTRY: Dict[str, str] = {
+    "topics": "topic",
+    "definitions": "definition",
+    "concepts": "concept",
+    "glossary": "glossary_entry",
+    "figures": "figure",
+    "diagrams": "diagram",
+    "tables": "table",
+    "equations": "equation",
+    "activities": "activity",
+    "boxes": "box",
+    "warnings": "warning",
+    "notes": "note",
+    "examples": "example",
+}
+
+# TOPIC_REVERSE_FIELDS (modules/topic_linker.py, Milestone 1) maps
+# object_type -> TopicNode reverse-list field name. For every type this
+# module tracks in OBJECT_TYPE_BY_REGISTRY, that reverse-list field name
+# is, by construction, identical to the RegistryManager registry name
+# the forward-linked object itself lives in (e.g. object_type "figure"
+# -> reverse field "figures" -> registry "figures") -- so no separate
+# mapping table is needed; this dict simply selects which registries
+# have a topic-reverse-list counterpart to cross-check at all (a `None`
+# value, e.g. "glossary_entry", means "forward topic_ids is still
+# checked elsewhere, but there is no reverse list to reconcile it
+# against").
+_TOPIC_LINKED_REGISTRIES: List[str] = sorted(
+    {
+        field
+        for object_type, field in TOPIC_REVERSE_FIELDS.items()
+        if field is not None and object_type in OBJECT_TYPE_BY_REGISTRY.values()
+    }
+)
 
 # make_id()'s (modules/pdf_parser.py) and _relationship_id()'s
 # (compiler/relationships.py) own output shape: a lowercase slug (never
@@ -188,6 +249,16 @@ def _warning(rule: str, message: str, **kw: Any) -> ValidationIssue:
     return ValidationIssue(severity="warning", rule=rule, message=message, **kw)
 
 
+def _info(rule: str, message: str, **kw: Any) -> ValidationIssue:
+    """Third severity tier (Milestone 2): a non-critical, purely
+    informational finding -- worth surfacing in the report but never
+    something that should make status "fail" or that a human needs to
+    act on before the compiler output can be trusted. See
+    ValidationReport.status: only `errors` affects it, exactly as
+    before this addition."""
+    return ValidationIssue(severity="info", rule=rule, message=message, **kw)
+
+
 @dataclass
 class ValidationReport:
     """The full Phase B4 compiler artifact -- see module docstring's
@@ -203,6 +274,11 @@ class ValidationReport:
     reference_summary: Dict[str, Any] = field(default_factory=dict)
     relationship_summary: Dict[str, Any] = field(default_factory=dict)
     integrity_summary: Dict[str, Any] = field(default_factory=dict)
+    hierarchy_summary: Dict[str, Any] = field(default_factory=dict)
+    topic_linking_summary: Dict[str, Any] = field(default_factory=dict)
+    graph_summary: Dict[str, Any] = field(default_factory=dict)
+    provenance_summary: Dict[str, Any] = field(default_factory=dict)
+    structural_completeness_summary: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def errors(self) -> List[ValidationIssue]:
@@ -211,6 +287,10 @@ class ValidationReport:
     @property
     def warnings(self) -> List[ValidationIssue]:
         return [i for i in self.issues if i.severity == "warning"]
+
+    @property
+    def infos(self) -> List[ValidationIssue]:
+        return [i for i in self.issues if i.severity == "info"]
 
     @property
     def status(self) -> str:
@@ -223,11 +303,17 @@ class ValidationReport:
             "status": self.status,
             "errors": [i.to_dict() for i in self.errors],
             "warnings": [i.to_dict() for i in self.warnings],
+            "info": [i.to_dict() for i in self.infos],
             "statistics": self.statistics,
             "registry_summary": self.registry_summary,
             "reference_summary": self.reference_summary,
             "relationship_summary": self.relationship_summary,
             "integrity_summary": self.integrity_summary,
+            "hierarchy_summary": self.hierarchy_summary,
+            "topic_linking_summary": self.topic_linking_summary,
+            "graph_summary": self.graph_summary,
+            "provenance_summary": self.provenance_summary,
+            "structural_completeness_summary": self.structural_completeness_summary,
         }
 
 
@@ -788,6 +874,482 @@ def _check_id_determinism(
 
 
 # --------------------------------------------------------------------------
+# 7. Hierarchy Integrity (Milestone 2)
+# --------------------------------------------------------------------------
+
+def _validate_hierarchy_integrity(
+    topics: Optional[Iterable[Dict[str, Any]]],
+) -> Tuple[List[ValidationIssue], Dict[str, Any]]:
+    """Validates the topic hierarchy itself -- schemas/chapter_schema.py's
+    TopicNode.parent / TopicNode.children, a flat list of nodes forming a
+    parent-pointer tree, not a nested structure. Read-only, exactly like
+    every other check in this module: no `topics` entry is ever mutated.
+
+    Only meaningful if `topics` is supplied (mirrors every other
+    `topics`-optional check in this module) -- if it isn't, this whole
+    category is skipped and `hierarchy_summary["checked"]` is False, never
+    silently treated as "valid".
+
+    Checks:
+      - duplicate topic ids (error -- breaks every other check below,
+        which all key off id uniqueness)
+      - every `parent` references an existing topic id, or is None/empty
+        (root) (error: broken_hierarchy_parent)
+      - every id in `children` references an existing topic id (error:
+        broken_hierarchy_child)
+      - parent/children mutual consistency: if A.parent == B, B.children
+        should contain A, and vice versa (warning: hierarchy_link_
+        mismatch -- worth a human's attention, but Phase A already
+        derives one direction from PDF heading structure and the other
+        may simply not have been back-filled for every node)
+      - no cycles in the parent chain (error: hierarchy_cycle -- a cycle
+        would make any parent-walk in a later phase infinite-loop)
+    """
+    issues: List[ValidationIssue] = []
+    if topics is None:
+        return issues, {"checked": False}
+
+    topic_list = [t for t in topics if isinstance(t, dict) and t.get("id")]
+    by_id: Dict[str, Dict[str, Any]] = {}
+    duplicate_ids = 0
+    for t in topic_list:
+        tid = t["id"]
+        if tid in by_id:
+            duplicate_ids += 1
+            issues.append(_error(
+                "duplicate_id",
+                f"topics: hierarchy contains duplicate topic id {tid!r}",
+                registry="topics", object_id=tid,
+            ))
+        else:
+            by_id[tid] = t
+
+    broken_parents = 0
+    broken_children = 0
+    link_mismatches = 0
+    for tid, t in by_id.items():
+        parent = t.get("parent")
+        if parent:
+            if parent not in by_id:
+                broken_parents += 1
+                issues.append(_error(
+                    "broken_hierarchy_parent",
+                    f"topics: {tid!r} has parent {parent!r}, which does "
+                    "not exist",
+                    registry="topics", object_id=tid,
+                    details={"parent": parent},
+                ))
+            elif tid not in (by_id[parent].get("children") or []):
+                link_mismatches += 1
+                issues.append(_warning(
+                    "hierarchy_link_mismatch",
+                    f"topics: {tid!r} declares parent {parent!r}, but "
+                    f"{parent!r}.children does not list {tid!r} back",
+                    registry="topics", object_id=tid,
+                    details={"parent": parent},
+                ))
+        for child in (t.get("children") or []):
+            if child not in by_id:
+                broken_children += 1
+                issues.append(_error(
+                    "broken_hierarchy_child",
+                    f"topics: {tid!r} lists child {child!r}, which does "
+                    "not exist",
+                    registry="topics", object_id=tid,
+                    details={"child": child},
+                ))
+            elif by_id[child].get("parent") != tid:
+                link_mismatches += 1
+                issues.append(_warning(
+                    "hierarchy_link_mismatch",
+                    f"topics: {tid!r} lists child {child!r}, but "
+                    f"{child!r}.parent is {by_id[child].get('parent')!r}, "
+                    f"not {tid!r}",
+                    registry="topics", object_id=tid,
+                    details={"child": child},
+                ))
+
+    cycles = 0
+    cyclic_ids: set = set()
+    for start in by_id:
+        if start in cyclic_ids:
+            continue
+        seen: List[str] = []
+        current: Optional[str] = start
+        visited_this_walk: set = set()
+        while current is not None:
+            if current in visited_this_walk:
+                cycles += 1
+                cyclic_ids.update(seen)
+                issues.append(_error(
+                    "hierarchy_cycle",
+                    "topics: cycle detected in parent chain starting at "
+                    f"{start!r} (revisits {current!r})",
+                    registry="topics", object_id=start,
+                    details={"chain": seen},
+                ))
+                break
+            visited_this_walk.add(current)
+            seen.append(current)
+            node = by_id.get(current)
+            current = node.get("parent") if node else None
+
+    summary = {
+        "checked": True,
+        "total_topics": len(topic_list),
+        "duplicate_ids": duplicate_ids,
+        "broken_parents": broken_parents,
+        "broken_children": broken_children,
+        "link_mismatches": link_mismatches,
+        "cycles": cycles,
+    }
+    return issues, summary
+
+
+# --------------------------------------------------------------------------
+# 8. Topic Linking Integrity (Milestone 2 -- builds on Milestone 1's
+#    modules/topic_linker.py universal object linking)
+# --------------------------------------------------------------------------
+
+def _validate_topic_linking_integrity(
+    manager: RegistryManager,
+    topics: Optional[Iterable[Dict[str, Any]]],
+) -> Tuple[List[ValidationIssue], Dict[str, Any]]:
+    """Verifies that Milestone 1's forward (`topic_ids` on the canonical
+    object) and reverse (the matching list field on TopicNode, e.g.
+    `TopicNode.figures`) links exactly agree with each other, for every
+    object type `modules/topic_linker.TOPIC_REVERSE_FIELDS` gives a
+    reverse slot to. This is the one check neither Phase B2
+    (compiler/references.py, forward-only) nor the existing Reference
+    Integrity check above (also forward-only) already performs -- see
+    module docstring addendum.
+
+    Only meaningful if `topics` is supplied. Never repairs a mismatch;
+    only reports it."""
+    issues: List[ValidationIssue] = []
+    if topics is None:
+        return issues, {"checked": False}
+
+    by_id: Dict[str, Dict[str, Any]] = {
+        t["id"]: t for t in topics if isinstance(t, dict) and t.get("id")
+    }
+
+    forward_missing_from_reverse = 0
+    reverse_missing_from_forward = 0
+    reverse_to_nonexistent_object = 0
+    duplicate_reverse_entries = 0
+    checked_pairs = 0
+
+    for registry_name in _TOPIC_LINKED_REGISTRIES:
+        if not manager.has(registry_name):
+            continue
+        registry = manager.get(registry_name)
+
+        # forward -> reverse: every object claiming a topic_id should be
+        # listed in that topic's matching reverse field.
+        for obj_id in registry.ids():
+            item = registry.get_by_id(obj_id)
+            if not isinstance(item, dict):
+                continue
+            for tid in (item.get("topic_ids") or []):
+                topic = by_id.get(tid)
+                if topic is None:
+                    continue  # reported separately by Reference Integrity
+                checked_pairs += 1
+                reverse_list = topic.get(registry_name) or []
+                if obj_id not in reverse_list:
+                    forward_missing_from_reverse += 1
+                    issues.append(_error(
+                        "reverse_reference_missing",
+                        f"{registry_name}: {obj_id!r} declares topic_ids "
+                        f"including {tid!r}, but topic {tid!r}.{registry_name} "
+                        f"does not list {obj_id!r} back",
+                        registry=registry_name, object_id=obj_id,
+                        details={"topic_id": tid, "reverse_field": registry_name},
+                    ))
+
+        # reverse -> forward: every id in a topic's reverse list should
+        # exist in the registry and claim that topic back.
+        for tid, topic in by_id.items():
+            reverse_list = topic.get(registry_name) or []
+            seen_this_list: set = set()
+            for obj_id in reverse_list:
+                if obj_id in seen_this_list:
+                    duplicate_reverse_entries += 1
+                    issues.append(_warning(
+                        "duplicate_reverse_reference",
+                        f"topics: {tid!r}.{registry_name} lists {obj_id!r} "
+                        "more than once",
+                        registry="topics", object_id=tid,
+                        details={"reverse_field": registry_name, "target_id": obj_id},
+                    ))
+                    continue
+                seen_this_list.add(obj_id)
+                item = registry.get_by_id(obj_id) if registry.contains(obj_id) else None
+                if item is None:
+                    reverse_to_nonexistent_object += 1
+                    issues.append(_error(
+                        "broken_reference",
+                        f"topics: {tid!r}.{registry_name} references "
+                        f"{obj_id!r}, which does not exist in "
+                        f"{registry_name!r}",
+                        registry="topics", object_id=tid,
+                        details={"reverse_field": registry_name, "target_id": obj_id},
+                    ))
+                    continue
+                if tid not in (item.get("topic_ids") or []):
+                    reverse_missing_from_forward += 1
+                    issues.append(_error(
+                        "forward_reference_missing",
+                        f"topics: {tid!r}.{registry_name} lists {obj_id!r}, "
+                        f"but {registry_name}:{obj_id!r}.topic_ids does not "
+                        f"list {tid!r} back",
+                        registry=registry_name, object_id=obj_id,
+                        details={"topic_id": tid, "reverse_field": registry_name},
+                    ))
+
+    summary = {
+        "checked": True,
+        "registries_covered": list(_TOPIC_LINKED_REGISTRIES),
+        "checked_pairs": checked_pairs,
+        "forward_missing_from_reverse": forward_missing_from_reverse,
+        "reverse_missing_from_forward": reverse_missing_from_forward,
+        "reverse_to_nonexistent_object": reverse_to_nonexistent_object,
+        "duplicate_reverse_entries": duplicate_reverse_entries,
+    }
+    return issues, summary
+
+
+# --------------------------------------------------------------------------
+# 9. Graph Integrity (Milestone 2)
+# --------------------------------------------------------------------------
+
+def _validate_graph_integrity(
+    manager: RegistryManager,
+    topics: Optional[Iterable[Dict[str, Any]]],
+) -> Tuple[List[ValidationIssue], Dict[str, Any]]:
+    """Treats `topic_ids`/relationship endpoints as directed edges of one
+    object graph and looks for two things neither Reference Integrity nor
+    Relationship Integrity above already reports: duplicate edges
+    (the same target id repeated inside one object's own reference list)
+    and orphan nodes (a canonical object connected to nothing -- no
+    topic_ids AND not a source/target of any relationship). Orphan nodes
+    are reported at `info` severity: per modules/topic_linker.py's own
+    documented design, an object that genuinely has no deterministic page
+    match is SUPPOSED to end up unlinked rather than guessed at, so this
+    is worth surfacing, not treated as broken."""
+    issues: List[ValidationIssue] = []
+    duplicate_edges = 0
+    orphan_nodes = 0
+
+    connected_ids: set = set()
+    if manager.has(RELATIONSHIP_REGISTRY_NAME):
+        rel_registry = manager.get(RELATIONSHIP_REGISTRY_NAME)
+        for rel_id in rel_registry.ids():
+            rel = rel_registry.get_by_id(rel_id)
+            if not isinstance(rel, dict):
+                continue
+            if rel.get("source_id"):
+                connected_ids.add(rel.get("source_id"))
+            if rel.get("target_id"):
+                connected_ids.add(rel.get("target_id"))
+
+    for name in REGISTRY_NAMES:
+        if not manager.has(name):
+            continue
+        registry = manager.get(name)
+        for id_ in registry.ids():
+            item = registry.get_by_id(id_)
+            if not isinstance(item, dict):
+                continue
+
+            for field_name in ("topic_ids", "concept_ids"):
+                values = item.get(field_name) or []
+                if len(values) != len(set(values)):
+                    duplicate_edges += 1
+                    issues.append(_warning(
+                        "duplicate_reference",
+                        f"{name}: item {id_!r} field {field_name!r} "
+                        "contains duplicate target id(s)",
+                        registry=name, object_id=id_,
+                        details={"field": field_name},
+                    ))
+
+            topic_ids = item.get("topic_ids") or []
+            if not topic_ids and id_ not in connected_ids and name != "topics":
+                orphan_nodes += 1
+                issues.append(_info(
+                    "orphan_object",
+                    f"{name}: item {id_!r} has no topic_ids and is not "
+                    "referenced by any relationship -- structurally "
+                    "valid, but unconnected to the rest of the graph",
+                    registry=name, object_id=id_,
+                ))
+
+    if topics is not None:
+        for t in topics:
+            if not isinstance(t, dict) or not t.get("id"):
+                continue
+            has_reverse_content = any(
+                t.get(field_name) for field_name in set(TOPIC_REVERSE_FIELDS.values()) - {None}
+            )
+            if not t.get("parent") and not t.get("children") and not has_reverse_content:
+                orphan_nodes += 1
+                issues.append(_info(
+                    "orphan_object",
+                    f"topics: {t['id']!r} has no parent, no children, and "
+                    "no reverse-linked content",
+                    registry="topics", object_id=t["id"],
+                ))
+
+    summary = {
+        "duplicate_edges": duplicate_edges,
+        "orphan_nodes": orphan_nodes,
+    }
+    return issues, summary
+
+
+# --------------------------------------------------------------------------
+# 10. Provenance Integrity (Milestone 2)
+# --------------------------------------------------------------------------
+
+def _validate_provenance_integrity(
+    manager: RegistryManager,
+    page_count: Optional[int],
+) -> Tuple[List[ValidationIssue], Dict[str, Any]]:
+    """Every canonical object must carry a `provenance` dict (error if
+    entirely missing -- Canonical Object Integrity above only checks that
+    the *key* is present/truthy, not that it usefully identifies a page).
+    `provenance.source_page` missing is a warning, not an error: several
+    legitimate object types (e.g. a chapter-level Concept aggregated
+    across pages) do not have one deterministic source page -- see
+    schemas/chapter_schema.py's own Provenance docstring ("not every
+    object type has a meaningful value for every field"). If `page_count`
+    is supplied (0-indexed page range, matching pdf_parser's own page
+    numbering -- see pipeline.py's `structure.num_pages`), a source_page
+    outside `[0, page_count - 1]` is an error: that page cannot exist in
+    this chapter's own PDF, so the provenance record is simply wrong, not
+    just incomplete."""
+    issues: List[ValidationIssue] = []
+    missing_provenance = 0
+    missing_source_page = 0
+    invalid_source_page = 0
+    checked = 0
+
+    for name in REGISTRY_NAMES:
+        if not manager.has(name):
+            continue
+        registry = manager.get(name)
+        for id_ in registry.ids():
+            item = registry.get_by_id(id_)
+            if not isinstance(item, dict):
+                continue
+            checked += 1
+            provenance = item.get("provenance")
+            if not isinstance(provenance, dict):
+                missing_provenance += 1
+                issues.append(_error(
+                    "missing_provenance",
+                    f"{name}: item {id_!r} has no provenance record",
+                    registry=name, object_id=id_,
+                ))
+                continue
+
+            source_page = provenance.get("source_page")
+            if source_page is None:
+                missing_source_page += 1
+                issues.append(_warning(
+                    "provenance_missing_page",
+                    f"{name}: item {id_!r}.provenance.source_page is not set",
+                    registry=name, object_id=id_,
+                ))
+            elif page_count is not None and (
+                not isinstance(source_page, int)
+                or isinstance(source_page, bool)
+                or not (0 <= source_page < page_count)
+            ):
+                invalid_source_page += 1
+                issues.append(_error(
+                    "provenance_invalid_page",
+                    f"{name}: item {id_!r}.provenance.source_page="
+                    f"{source_page!r} falls outside this chapter's page "
+                    f"range [0, {page_count - 1}]",
+                    registry=name, object_id=id_,
+                    details={"source_page": source_page, "page_count": page_count},
+                ))
+
+    summary = {
+        "checked": checked,
+        "missing_provenance": missing_provenance,
+        "missing_source_page": missing_source_page,
+        "invalid_source_page": invalid_source_page,
+        "page_count_supplied": page_count is not None,
+    }
+    return issues, summary
+
+
+# --------------------------------------------------------------------------
+# 11. Structural Completeness (Milestone 2)
+# --------------------------------------------------------------------------
+
+def _validate_structural_completeness(
+    manager: RegistryManager,
+) -> Tuple[List[ValidationIssue], Dict[str, Any]]:
+    """Catches compiler output that is present but incomplete, beyond
+    what Canonical Object Integrity (REQUIRED_CANONICAL_FIELDS) already
+    covers: a missing `topic_ids`/`concept_ids` *key* entirely (as
+    opposed to a present-but-empty list, which Milestone 1 documents as
+    a legitimate "nothing matched" outcome, not an error), and an item
+    stored under a registry whose own `object_type` says it belongs
+    somewhere else (inconsistent object ownership)."""
+    issues: List[ValidationIssue] = []
+    missing_topic_ids_field = 0
+    missing_concept_ids_field = 0
+    ownership_mismatches = 0
+
+    for name in REGISTRY_NAMES:
+        if not manager.has(name):
+            continue
+        expected_type = OBJECT_TYPE_BY_REGISTRY.get(name)
+        registry = manager.get(name)
+        for id_ in registry.ids():
+            item = registry.get_by_id(id_)
+            if not isinstance(item, dict):
+                continue
+            if "topic_ids" not in item:
+                missing_topic_ids_field += 1
+                issues.append(_error(
+                    "missing_topic_ids_field",
+                    f"{name}: item {id_!r} has no 'topic_ids' key at all",
+                    registry=name, object_id=id_,
+                ))
+            if "concept_ids" not in item:
+                missing_concept_ids_field += 1
+                issues.append(_error(
+                    "missing_concept_ids_field",
+                    f"{name}: item {id_!r} has no 'concept_ids' key at all",
+                    registry=name, object_id=id_,
+                ))
+            actual_type = item.get("object_type")
+            if expected_type and actual_type and actual_type != expected_type:
+                ownership_mismatches += 1
+                issues.append(_error(
+                    "inconsistent_object_ownership",
+                    f"{name}: item {id_!r} has object_type {actual_type!r}, "
+                    f"expected {expected_type!r} for this registry",
+                    registry=name, object_id=id_,
+                    details={"expected_type": expected_type, "actual_type": actual_type},
+                ))
+
+    summary = {
+        "missing_topic_ids_field": missing_topic_ids_field,
+        "missing_concept_ids_field": missing_concept_ids_field,
+        "ownership_mismatches": ownership_mismatches,
+    }
+    return issues, summary
+
+
+# --------------------------------------------------------------------------
 # Top-level entry point -- pipeline.py's single integration point
 # --------------------------------------------------------------------------
 
@@ -795,6 +1357,7 @@ def validate_compiler_state(
     manager: RegistryManager,
     *,
     topics: Optional[Iterable[Dict[str, Any]]] = None,
+    page_count: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Phase B4's single pipeline.py integration point (mirrors
     compiler.references.resolve_references()'s and compiler.relationships
@@ -806,16 +1369,33 @@ def validate_compiler_state(
 
     Read-only over `manager` and `topics`: no registry is inserted into,
     updated, or removed from; no item dict anywhere is mutated; `topics`
-    is only ever read. Runs all six validation categories the task spec
-    lists (registry integrity, canonical object integrity, reference
-    integrity, relationship integrity, compiler state integrity,
-    determinism validation) and folds their issues/summaries into one
+    is only ever read. Runs all eleven validation categories the task
+    spec lists (registry integrity, canonical object integrity,
+    reference integrity, relationship integrity, compiler state
+    integrity, determinism validation, hierarchy integrity, topic
+    linking integrity, graph integrity, provenance integrity, structural
+    completeness) and folds their issues/summaries into one
     ValidationReport, returned here as a plain dict (report.to_dict())
     for the same "plain, storable dict" reasons resolve_relationships()
     already documents for its own return value, and so it can be handed
     directly to compiler_state.set_current_validation_report() (task's
     own "the validation report should become part of the compiler
     state").
+
+    Milestone 2 wiring fix: `_validate_hierarchy_integrity`,
+    `_validate_topic_linking_integrity`, `_validate_graph_integrity`,
+    `_validate_provenance_integrity`, and `_validate_structural_
+    completeness` were already fully implemented below (sections 7-11)
+    -- and `ValidationReport` already had dedicated summary fields
+    waiting for their output -- but none of the five were ever actually
+    called from this entry point, so none of them ever ran against a
+    real chapter. They are wired in here, in the same section-number
+    order they appear in below, so nothing that was already implemented
+    keeps silently not running. `page_count`, new here, is threaded
+    through only to `_validate_provenance_integrity` (the one check that
+    needs it, to catch a `source_page` outside this chapter's own PDF
+    page range); every other new call already only needs `manager`/
+    `topics`, which this function already received.
     """
     report = ValidationReport(
         version=VALIDATION_VERSION,
@@ -843,6 +1423,26 @@ def validate_compiler_state(
     report.issues.extend(determinism_issues)
 
     report.integrity_summary = {**state_summary, "determinism": determinism_summary}
+
+    hierarchy_issues, hierarchy_summary = _validate_hierarchy_integrity(topics)
+    report.issues.extend(hierarchy_issues)
+    report.hierarchy_summary = hierarchy_summary
+
+    topic_linking_issues, topic_linking_summary = _validate_topic_linking_integrity(manager, topics)
+    report.issues.extend(topic_linking_issues)
+    report.topic_linking_summary = topic_linking_summary
+
+    graph_issues, graph_summary = _validate_graph_integrity(manager, topics)
+    report.issues.extend(graph_issues)
+    report.graph_summary = graph_summary
+
+    provenance_issues, provenance_summary = _validate_provenance_integrity(manager, page_count)
+    report.issues.extend(provenance_issues)
+    report.provenance_summary = provenance_summary
+
+    structural_issues, structural_summary = _validate_structural_completeness(manager)
+    report.issues.extend(structural_issues)
+    report.structural_completeness_summary = structural_summary
 
     report.statistics = {
         "registries_checked": len(manager.names()),
