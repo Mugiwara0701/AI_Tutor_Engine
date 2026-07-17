@@ -172,6 +172,12 @@ def _collect_chapter_state_references(build: Build) -> Dict[str, Optional[Dict[s
         "incremental_plan_reference": build.incremental_plan_reference,
         "incremental_validation_reference": build.incremental_validation_reference,
         "incremental_finalization_reference": build.incremental_finalization_reference,
+        # Milestone 5.2: Document Structure Tree (DST) artifact
+        # registration -- DST's counterpart to `knowledge_graph_reference`
+        # above, mirrored verbatim from Build's own field for the exact
+        # same reason every other reference here is (see this function's
+        # own docstring).
+        "document_structure_tree_reference": build.document_structure_tree_reference,
     }
 
 

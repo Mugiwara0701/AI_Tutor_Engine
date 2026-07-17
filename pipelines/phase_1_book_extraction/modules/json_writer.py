@@ -59,6 +59,13 @@ _ARTIFACT_SUBFOLDERS = (
     "validation",          # validation/persistence.py     -- Stage D1/D2/D3 validation reports
     "compiler_metadata",   # compiler/persistence.py       -- Compiler IR manifest/statistics/fingerprints/etc.
     "build_metadata",      # build_metadata/persistence.py -- Phase E1 Build Metadata
+    "document_structure_tree",  # document_structure_tree/persistence.py -- Milestone 5/M6 Document
+                                 # Structure Tree artifact. document_structure_tree/persistence.py's
+                                 # ARTIFACT_TYPE == "document_structure_tree" already assumed this
+                                 # folder existed via artifact_output_path()/artifact_output_dir() --
+                                 # added here, mirroring every sibling artifact type above, so that
+                                 # assumption actually holds (previously artifact_output_dir() raised
+                                 # ValueError for this artifact_type, silently breaking DST persistence).
 )
 
 _BOOK_SUBFOLDERS = ("json_out", "logs", "cache", "assets") + _ARTIFACT_SUBFOLDERS

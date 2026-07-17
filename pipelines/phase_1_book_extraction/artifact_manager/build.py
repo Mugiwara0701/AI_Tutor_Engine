@@ -154,6 +154,11 @@ class ReferenceSnapshot:
     incremental_plan_reference: Optional[Dict[str, Any]]
     incremental_validation_reference: Optional[Dict[str, Any]]
     incremental_finalization_reference: Optional[Dict[str, Any]]
+    # Milestone 5.2: Document Structure Tree (DST) artifact registration.
+    # DST's counterpart to `knowledge_graph_reference` above -- see
+    # build_reference_snapshot()'s own docstring for exactly what is
+    # referenced and why.
+    document_structure_tree_reference: Optional[Dict[str, Any]]
 
 
 def build_reference_snapshot() -> ReferenceSnapshot:
@@ -177,6 +182,19 @@ def build_reference_snapshot() -> ReferenceSnapshot:
     import incremental_compilation.state as incremental_compilation_state
     import incremental_compilation_validation.state as incremental_compilation_validation_state
     import incremental_compilation_finalization.state as incremental_compilation_finalization_state
+    # Milestone 5.2: local import, same rationale as every import above --
+    # `document_structure_tree.state` is DST's own chapter-scoped "current
+    # DST" slot (see that module's own docstring: "artifact registration
+    # (`artifact_manager`)" is explicitly listed as this slot's reason for
+    # existing). `document_structure_tree.artifact.to_canonical_json` is
+    # reused, unchanged, to shape-adapt the DST -- the same function
+    # document_structure_tree/persistence.py already reuses to persist it
+    # -- rather than relying on `_to_plain()`'s generic dataclass fallback,
+    # since the DST's own nested value types (ChapterId, NodeId, ...) are
+    # not themselves dataclasses and `to_canonical_json()` is already the
+    # correct, tested, schema-following JSON shape for this artifact.
+    import document_structure_tree.state as document_structure_tree_state
+    from document_structure_tree.artifact import to_canonical_json as dst_to_canonical_json
 
     return ReferenceSnapshot(
         compiler_ir_reference=_reference(
@@ -204,6 +222,10 @@ def build_reference_snapshot() -> ReferenceSnapshot:
         ),
         incremental_finalization_reference=_reference(
             incremental_compilation_finalization_state.get_current_incremental_compilation_readiness_report()
+        ),
+        document_structure_tree_reference=_reference(
+            dst_to_canonical_json(document_structure_tree_state.get_current_document_structure_tree())
+            if document_structure_tree_state.has_current_document_structure_tree() else None
         ),
     )
 
@@ -293,6 +315,9 @@ class Build:
     incremental_plan_reference: Optional[Dict[str, Any]]
     incremental_validation_reference: Optional[Dict[str, Any]]
     incremental_finalization_reference: Optional[Dict[str, Any]]
+    # Milestone 5.2: Document Structure Tree (DST) artifact registration --
+    # see ReferenceSnapshot's own comment above for what this mirrors.
+    document_structure_tree_reference: Optional[Dict[str, Any]]
 
     runtime_metadata: Dict[str, Any]
     execution_summary: Dict[str, Any]
@@ -334,6 +359,7 @@ class Build:
                 "incremental_plan_reference": self.incremental_plan_reference,
                 "incremental_validation_reference": self.incremental_validation_reference,
                 "incremental_finalization_reference": self.incremental_finalization_reference,
+                "document_structure_tree_reference": self.document_structure_tree_reference,
             },
         }
 
@@ -353,6 +379,7 @@ class Build:
             incremental_plan_reference=self.incremental_plan_reference,
             incremental_validation_reference=self.incremental_validation_reference,
             incremental_finalization_reference=self.incremental_finalization_reference,
+            document_structure_tree_reference=self.document_structure_tree_reference,
             runtime_metadata=self.runtime_metadata,
             execution_summary=self.execution_summary,
         )
@@ -440,6 +467,7 @@ def create_build(
         incremental_plan_reference=snapshot.incremental_plan_reference,
         incremental_validation_reference=snapshot.incremental_validation_reference,
         incremental_finalization_reference=snapshot.incremental_finalization_reference,
+        document_structure_tree_reference=snapshot.document_structure_tree_reference,
         runtime_metadata=runtime_metadata,
         execution_summary=execution_summary,
     )

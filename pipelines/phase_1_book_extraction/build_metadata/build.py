@@ -49,6 +49,18 @@ from .compilation_metadata import generate_compilation_metadata
 from .configuration_metadata import generate_configuration_metadata
 from .version_metadata import generate_version_metadata
 
+# M5.3 verification fix (wiring only, no behavior change): pipeline.py's
+# own M5.2 integration block -- and that block's own comment -- import
+# `generate_dst_metadata`/`attach_dst_metadata` from `build_metadata.build`,
+# but these were implemented in the package's `__init__.py` instead. That
+# mismatch means `from build_metadata.build import generate_dst_metadata,
+# attach_dst_metadata` (pipeline.py's actual source line) raises
+# ImportError as written. Re-exporting here (not moving the
+# implementation, not changing DSTMetadata's shape or behavior) is the
+# minimal fix that makes the existing, already-reviewed M5.2
+# implementation actually importable the way its own call site expects.
+from . import DSTMetadata, generate_dst_metadata, attach_dst_metadata  # noqa: F401
+
 # This module's own version marker -- independent of every other *_VERSION
 # constant in this codebase (see e.g. compiler/finalize.py's own
 # FINALIZE_VERSION). Bump only if the SHAPE this module produces itself
