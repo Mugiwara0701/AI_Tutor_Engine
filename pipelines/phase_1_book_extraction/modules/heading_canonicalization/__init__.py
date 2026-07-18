@@ -24,14 +24,15 @@ the two: it adapts a `heading_recognizers.base.RecognitionResult`
 default. Nothing in `heading_recognizers` was read for anything beyond
 that adapter's type hints, and nothing there was modified.
 
-Concrete canonicalizers (M4.3B and later — RomanNumeralCanonicalizer,
-ArabicNumeralCanonicalizer, DevanagariNumeralCanonicalizer, a title
-normalizer, a structural validator) belong in new modules inside this
-package, each implementing `base.HeadingCanonicalizer` and registered
-into `default_registry` via one `register(...)` call — mirroring
-`modules.heading_recognizers`'s own registration convention. Nothing
-in `base.py`, `config.py`, `registry.py`, or `pipeline.py` should need
-to change to add these.
+M4.3B adds the first concrete canonicalizers — `NumberingSystemDetector`,
+`RomanNumeralCanonicalizer`, `ArabicNumeralCanonicalizer`, and
+`DevanagariNumeralCanonicalizer` (see `numeral_canonicalizers.py`) —
+each implementing `base.HeadingCanonicalizer` and registered into
+`default_registry` via one `register(...)` call below, mirroring
+`modules.heading_recognizers`'s own registration convention. Later
+milestones (a title normalizer, a structural validator) follow the
+same pattern. Nothing in `base.py`, `config.py`, `registry.py`, or
+`pipeline.py` needed to change to add these.
 
 Public API:
     CanonicalHeading                      — models.py
@@ -84,6 +85,12 @@ from modules.heading_canonicalization.exceptions import (
     HeadingCanonicalizationError,
 )
 from modules.heading_canonicalization.models import CanonicalHeading
+from modules.heading_canonicalization.numeral_canonicalizers import (
+    ArabicNumeralCanonicalizer,
+    DevanagariNumeralCanonicalizer,
+    NumberingSystemDetector,
+    RomanNumeralCanonicalizer,
+)
 from modules.heading_canonicalization.pipeline import (
     AttemptRecord,
     CanonicalizationPipeline,
@@ -103,6 +110,22 @@ from modules.heading_canonicalization.validation import (
     ValidationDiagnostic,
     ValidationResult,
 )
+
+# -- M4.3B: register the number-system canonicalizer family ---------------------
+#
+# One `register(...)` call per canonicalizer, same convention
+# `heading_recognizers/__init__.py` uses for its own recognizer
+# family. `NumberingSystemDetector` must run before the three
+# numeral-specific canonicalizers so `heading.numbering_system` is
+# already populated when they check it — its lower `default_priority`
+# (10 vs. 20) guarantees that ordering via
+# `CanonicalizerRegistry.all_canonicalizers()`'s own
+# (priority, registration-order) sort, regardless of the order
+# `register()` is called in below.
+register(NumberingSystemDetector())
+register(RomanNumeralCanonicalizer())
+register(ArabicNumeralCanonicalizer())
+register(DevanagariNumeralCanonicalizer())
 
 __all__ = [
     # models
@@ -131,6 +154,11 @@ __all__ = [
     "CanonicalizationPipeline",
     "CanonicalizationPipelineResult",
     "AttemptRecord",
+    # M4.3B numeral canonicalizers
+    "NumberingSystemDetector",
+    "RomanNumeralCanonicalizer",
+    "ArabicNumeralCanonicalizer",
+    "DevanagariNumeralCanonicalizer",
     # enums
     "CanonicalHeadingType",
     "NumberingSystem",

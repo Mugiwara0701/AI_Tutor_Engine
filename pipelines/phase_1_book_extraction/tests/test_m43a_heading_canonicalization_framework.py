@@ -761,6 +761,10 @@ class PublicApiTest(unittest.TestCase):
             "CanonicalizerRegistry", "default_registry", "register", "unregister", "get",
             "enabled_canonicalizers", "all_canonicalizers",
             "CanonicalizationPipeline", "CanonicalizationPipelineResult", "AttemptRecord",
+            # M4.3B: the first concrete canonicalizers, registered into
+            # default_registry (see test_m43b_number_system_canonicalization.py).
+            "NumberingSystemDetector", "RomanNumeralCanonicalizer",
+            "ArabicNumeralCanonicalizer", "DevanagariNumeralCanonicalizer",
             "CanonicalHeadingType", "NumberingSystem", "ValidationStatus", "ValidationSeverity",
             "CanonicalizerState", "CanonicalizationOutcome",
             "HeadingCanonicalizationError", "CanonicalizerRegistrationError",
@@ -772,12 +776,29 @@ class PublicApiTest(unittest.TestCase):
             self.assertTrue(hasattr(hc, name), f"missing public export: {name}")
         self.assertEqual(set(hc.__all__), expected)
 
-    def test_default_registry_starts_empty(self):
-        # M4.3A registers no concrete canonicalizer (framework only) —
-        # this pins that "framework-only" contract so a future
-        # milestone accidentally skipping registration is caught.
+    def test_default_registry_has_m43b_canonicalizers_registered(self):
+        # M4.3A itself registered no concrete canonicalizer
+        # (framework only). M4.3B (Number System Canonicalization) is
+        # the first milestone to plug concrete canonicalizers into
+        # this same default_registry, exactly as this package's own
+        # README/docstring anticipated: "once M4.3B ... register
+        # canonicalizers into default_registry, the exact same
+        # pipeline call starts returning a CanonicalHeading with
+        # those placeholders actually filled in." This test now pins
+        # *that* contract instead of the now-superseded "starts empty"
+        # one — see test_m43b_number_system_canonicalization.py for
+        # full coverage of the canonicalizers themselves.
         import modules.heading_canonicalization as hc
-        self.assertEqual(len(hc.default_registry), 0)
+        names = set(hc.default_registry.registered_names())
+        self.assertEqual(
+            names,
+            {
+                "numbering_system_detector",
+                "roman_numeral_canonicalizer",
+                "arabic_numeral_canonicalizer",
+                "devanagari_numeral_canonicalizer",
+            },
+        )
 
     def test_heading_recognizers_package_untouched_still_importable(self):
         # Sanity: importing this new package must not break importing
