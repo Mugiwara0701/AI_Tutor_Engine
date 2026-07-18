@@ -26,9 +26,24 @@ import re
 import logging
 from typing import Dict, List, Optional, Set, Tuple
 
+import config
 from modules.stage_a_geometry import Block
+from modules.heading_recognizers import RecognitionPipeline, default_registry
+from modules.heading_recognizers.base import RecognitionContext, RecognitionResult
+from modules.heading_recognizers.exceptions import HeadingRecognitionError
 
 logger = logging.getLogger("ncert_pipeline.stage_b")
+
+# M4.2C: integration point for modules/heading_recognizers (M4.2A framework
+# + M4.2B generic recognizers) into the production heading detection flow.
+# One RecognitionPipeline built once, over the framework's own shared
+# default_registry/default_config, and reused for every heading-topic block
+# classified in this process -- avoids rebuilding the registry/recognizer
+# set per block (performance) while still leaving the framework's own
+# registry/config as the single source of truth for which recognizers run
+# and how they're prioritized/thresholded (configuration requirement: this
+# file introduces no new hard-coded thresholds of its own).
+_HEADING_RECOGNITION_PIPELINE = RecognitionPipeline(default_registry)
 
 # Possible block types, verbatim from the frozen architecture spec.
 BLOCK_TYPES = [
@@ -188,7 +203,106 @@ def _classify_body_text_fallback(block: Block) -> Tuple[str, float]:
     return "Ambiguous", 0.0
 
 
-def classify(block: Block, preceding_text: str = "", in_example: bool = False) -> Tuple[str, float]:
+# ---------------------------------------------------------------------------
+# M4.2C: heading recognition framework integration
+# ---------------------------------------------------------------------------
+#
+# Stage A's `_topic_heading_blocks` already wraps each pdf_parser-detected
+# TopicRecord as a "heading-topic" Block (see that function's own docstring
+# for why headings are detected upstream, not re-derived here) -- so the
+# question "is this block a Heading" was already answered deterministically
+# and reliably before Stage B ever sees it. What Stage B previously never
+# did is ask the *finer-grained* question modules/heading_recognizers (M4.2A
+# framework + M4.2B generic recognizers) exists to answer: which heading
+# pattern (numbered / hierarchical / roman numeral / alphabetic / chapter
+# number / chapter title / ...) does this specific heading's text actually
+# match, at what confidence, with what diagnostics. That framework becomes
+# the authoritative source for THAT question as of M4.2C; it does not
+# override Stage A's own "is this a Heading" determination (block_type and
+# confidence for heading-topic blocks are unchanged from M4.1 -- see
+# classify() below), only enriches it.
+
+
+def _heading_recognition_text(meta: Dict) -> str:
+    """Picks the candidate text to feed a heading recognizer from a
+    heading-topic Block's grouping_meta.
+
+    The M4.2B generic recognizers each expect ONE specific shape of bare
+    candidate text -- NumberedHeadingRecognizer/HierarchicalHeadingRecognizer/
+    RomanNumeralHeadingRecognizer/AlphabeticHeadingRecognizer all require
+    the *entire* text to be nothing but the numbering token itself (e.g.
+    "1.1", not "1.1 Motion" -- see their own `recognize()` docstrings),
+    while ChapterTitleRecognizer requires the opposite: title-cased prose
+    text with no leading digit at all. Concatenating TopicRecord.numbering
+    and TopicRecord.title together would make every one of those checks
+    fail simultaneously. So: prefer the bare numbering token when
+    pdf_parser found one (the common case -- most NCERT headings are
+    numbered), falling back to the bare title text only when there is no
+    numbering (pdf_parser's own `detect_unnumbered_headings` path), which
+    is exactly the input ChapterTitleRecognizer (and, for a title that
+    itself starts with a keyword, ChapterNumberRecognizer) is built for.
+    """
+    numbering = (meta.get("numbering") or "").strip()
+    if numbering:
+        return numbering
+    return (meta.get("title") or "").strip()
+
+
+def _recognize_heading(block: Block, preceding_heading_level: Optional[int]) -> Optional[RecognitionResult]:
+    """Runs the shared M4.2A/B RecognitionPipeline against one heading-topic
+    Block. Returns the winning RecognitionResult, or None when nothing
+    matched (or the framework is disabled via config). Never raises --
+    RecognitionPipeline.run() already turns an individual recognizer's
+    exception into a FailureResult internally (HeadingRecognizer.
+    safe_recognize()), and this wraps the run() call itself in the
+    framework's own exception hierarchy as a second line of defense, so a
+    heading recognition problem can never abort Stage B / the extraction
+    pipeline (M4.2C error-handling requirement)."""
+    if not config.ENABLE_HEADING_RECOGNITION:
+        return None
+
+    meta = block.grouping_meta or {}
+    text = _heading_recognition_text(meta)
+    if not text:
+        return None
+
+    context = RecognitionContext(
+        text=text,
+        page=block.page,
+        preceding_heading_level=preceding_heading_level,
+        metadata={"topic_id": meta.get("topic_id"), "numbering": meta.get("numbering"),
+                  "stage_a_level": meta.get("level")},
+    )
+    try:
+        result = _HEADING_RECOGNITION_PIPELINE.run(context)
+    except HeadingRecognitionError:
+        logger.exception(
+            "Heading recognition pipeline failed for topic_id=%s on page %s -- "
+            "keeping Stage A's Heading classification, no recognition metadata attached.",
+            meta.get("topic_id"), block.page,
+        )
+        return None
+    return result.winner
+
+
+def _attach_heading_recognition_metadata(block: Block, result: RecognitionResult) -> None:
+    """Records the winning recognizer's outcome on the block for downstream
+    consumers (e.g. a later phase mapping this onto
+    document_structure_tree's HeadingDetectionMethod) without touching any
+    existing grouping_meta key -- reuses the framework's own immutable
+    RecognitionResult fields rather than inventing a parallel shape."""
+    block.grouping_meta["heading_recognition"] = {
+        "recognizer_name": result.recognizer_name,
+        "classification": result.classification.value,
+        "confidence": result.confidence,
+        "level": result.level,
+        "number": result.number,
+        "diagnostics": result.diagnostics,
+    }
+
+
+def classify(block: Block, preceding_text: str = "", in_example: bool = False,
+             preceding_heading_level: Optional[int] = None) -> Tuple[str, float]:
     """Pure deterministic classification."""
     anchor = (block.grouping_meta or {}).get("anchor", "")
 
@@ -202,6 +316,14 @@ def classify(block: Block, preceding_text: str = "", in_example: bool = False) -
             return "Exercise", 0.7
         return _classify_callout_label(block)
     if anchor == "heading-topic":
+        # M4.2C: run the heading recognition framework for its diagnostic
+        # metadata; block_type/confidence stay exactly what M4.1 already
+        # returned here (Stage A's TopicRecord detection remains
+        # authoritative for "is this a Heading" -- see module docstring
+        # above), so this is additive and cannot regress existing callers.
+        winner = _recognize_heading(block, preceding_heading_level)
+        if winner is not None:
+            _attach_heading_recognition_metadata(block, winner)
         return "Heading", 1.0
     if anchor == "definition-candidate":
         meta = block.grouping_meta or {}
@@ -322,8 +444,17 @@ def classify_blocks(blocks: List[Block]) -> List[Block]:
         page_blocks.sort(key=lambda b: b.bbox[1])
         prev_text = ""
         in_example = False
+        # M4.2C: the most recently classified heading's own Stage A level
+        # (grouping_meta["level"], NOT the recognizer's guess -- see
+        # _recognize_heading's docstring) -- fed to modules.heading_recognizers
+        # as RecognitionContext.preceding_heading_level so recognizers that
+        # reason about hierarchy continuity (e.g. ChapterTitleRecognizer) have
+        # it, without Stage B trusting an unverified recognizer level for its
+        # own bookkeeping.
+        preceding_heading_level: Optional[int] = None
         for b in page_blocks:
-            block_type, confidence = classify(b, preceding_text=prev_text, in_example=in_example)
+            block_type, confidence = classify(b, preceding_text=prev_text, in_example=in_example,
+                                                preceding_heading_level=preceding_heading_level)
             b.block_type = block_type
             b.confidence = confidence
             prev_text = " ".join(l.text for l in b.lines)[:200]
@@ -337,6 +468,9 @@ def classify_blocks(blocks: List[Block]) -> List[Block]:
                     in_example = False
             elif anchor == "heading-topic":
                 in_example = False
+                level = (b.grouping_meta or {}).get("level")
+                if isinstance(level, int):
+                    preceding_heading_level = level
 
     # M4.1C: Post-classification quality passes
     _propagate_parent_child_types(blocks)

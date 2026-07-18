@@ -99,6 +99,22 @@ DETERMINISTIC_CONFIDENCE_FLOOR = float(os.environ.get("NCERT_DET_CONFIDENCE_FLOO
 ENABLE_VISUAL_VLM = os.environ.get("NCERT_ENABLE_VISUAL_VLM", "0") == "1"
 
 # --------------------------------------------------------------------------
+# Stage B: heading recognition framework integration (M4.2C)
+# --------------------------------------------------------------------------
+# Whether Stage B (modules/stage_b_classify.py) runs each "heading-topic"
+# candidate through the modules/heading_recognizers framework (M4.2A
+# framework + M4.2B generic recognizers) to attach recognition metadata
+# (recognizer name, heading classification, confidence, diagnostics) onto
+# the Block. Default on. This never changes block_type or block.confidence
+# for a heading (Stage A's own TopicRecord detection stays authoritative
+# for "is this a heading" -- see stage_a_geometry.py's own docstring on
+# `_topic_heading_blocks`); it only controls whether the *additional*
+# sub-classification metadata is attached. An operator can flip this off
+# (e.g. while diagnosing an unexpected recognizer interaction) without
+# losing heading detection itself, mirroring ENABLE_VISUAL_VLM above.
+ENABLE_HEADING_RECOGNITION = os.environ.get("NCERT_ENABLE_HEADING_RECOGNITION", "1") == "1"
+
+# --------------------------------------------------------------------------
 # Educational Objects Document export (JSON size control)
 # --------------------------------------------------------------------------
 # The full Stage A/B/C block graph is always built and kept in memory for

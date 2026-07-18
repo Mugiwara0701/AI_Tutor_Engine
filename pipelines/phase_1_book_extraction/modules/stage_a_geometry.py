@@ -311,7 +311,15 @@ def _topic_heading_blocks(chapter_title: str, topics) -> List[Block]:
     for t in topics:
         b = _make_block(chapter_title, "heading-topic", t.page_start, t.bbox, [],
                          grouping_meta={"anchor": "heading-topic", "topic_id": t.id,
-                                        "numbering": t.numbering, "level": t.level})
+                                        "numbering": t.numbering, "level": t.level,
+                                        # M4.2C: carry the TopicRecord's own title text
+                                        # through onto the Block so Stage B can feed it
+                                        # to modules/heading_recognizers (grouping_meta
+                                        # was previously enough for Stage B's own
+                                        # anchor-only classification, which never needed
+                                        # the text itself -- see classify()'s
+                                        # `anchor == "heading-topic"` branch).
+                                        "title": t.title})
         b.page_end = t.page_end if t.page_end != t.page_start else None
         blocks.append(b)
         topic_id_to_block_id[t.id] = b.block_id
