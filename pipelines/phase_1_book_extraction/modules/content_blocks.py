@@ -23,32 +23,27 @@ import re
 from typing import List, Dict, Any
 
 from modules.pdf_parser import Line, make_id
+from modules.text_utils import (
+    DEFINITION_TERM_FIRST_RE,
+    DEFINITION_TERM_AFTER_RE,
+    TERM_STOPWORDS,
+)
+
+# DEFINITION_TERM_FIRST_RE, DEFINITION_TERM_AFTER_RE, and TERM_STOPWORDS
+# are imported from modules.text_utils (M4.1A: pattern centralisation).
+# Public names DEFINITION_TERM_FIRST_RE / DEFINITION_TERM_AFTER_RE are
+# preserved so external callers importing them from this module continue
+# to work unchanged. _TERM_STOPWORDS is aliased from TERM_STOPWORDS so
+# internal call sites continue to work without modification.
+# TERM_STOPWORDS now also includes the M4.1 R-I3 extended set.
 
 ACTIVITY_LABEL_RE = re.compile(r"^\s*(activity|think|observe|try|discuss|experiment)\b[\s:.\-]*", re.I)
 BOX_LABEL_RE = re.compile(r"^\s*(did you know|important|note|remember|case study|box)\b[\s:.\-]*", re.I)
 WARNING_LABEL_RE = re.compile(r"^\s*(warning|caution|remember|important)\b[\s:.\-]*", re.I)
 EXAMPLE_LABEL_RE = re.compile(r"^\s*(example|illustration|solved example)\b[\s:.\-]*\d*", re.I)
 
-# Two distinct sentence shapes for "X is a defined term" in NCERT prose:
-#   (a) term-first:  "Bonds are defined as ..."      -> capture before the connector
-#   (b) term-after:  "... which is called Bonds."    -> capture after the connector
-# These are intentionally two separate patterns (not one re.I-merged pattern)
-# because merging them under re.I let [A-Z] match lowercase letters too,
-# which silently disabled the "must look like a real term" guard and let
-# random mid-sentence clauses (e.g. "sector in an economy which") get
-# captured as if they were the defined term.
-DEFINITION_TERM_FIRST_RE = re.compile(
-    r"^(?P<term>[A-Z][A-Za-z][A-Za-z \-]{1,38})\s+(?:is|are)\s+defined as\b")
-DEFINITION_TERM_AFTER_RE = re.compile(
-    r"\b(?:is|are)\s+(?:called|known as|referred to as)\s+"
-    r"(?:the\s+|an?\s+)?(?P<term>[A-Za-z][A-Za-z \-]{1,38}?)(?=[.,;:]|\s+and\b|$)", re.I)
-
-# A definition sentence that wraps across a line break leaves the real term
-# on the *next* line and only a leftover article/pronoun on this one (e.g.
-# "...is known as the" with "classical tradition" starting the next line).
-# The optional article-prefix in DEFINITION_TERM_AFTER_RE can backtrack to
-# capture that leftover word as if it were the term — reject it explicitly.
-_TERM_STOPWORDS = {"the", "a", "an", "this", "that", "these", "those", "it", "its", "which", "who"}
+# (See modules/text_utils.py for pattern documentation.)
+_TERM_STOPWORDS = TERM_STOPWORDS
 
 
 def _label_from_match(text: str, regex: re.Pattern) -> str:

@@ -65,6 +65,11 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from modules.pdf_parser import Line, ChapterStructure, make_id
 from modules.layout_detector import VisualRegion
+from modules.text_utils import (
+    DEFINITION_TERM_FIRST_RE as _DEFINITION_TERM_FIRST_RE,
+    DEFINITION_TERM_AFTER_RE as _DEFINITION_TERM_AFTER_RE,
+    TERM_STOPWORDS as _DEFINITION_TERM_STOPWORDS,
+)
 
 logger = logging.getLogger("ncert_pipeline.stage_a")
 
@@ -78,21 +83,10 @@ _LABEL_ANCHOR_RE = re.compile(
     r"|warning|caution"
     r"|example|illustration|solved example)\b[\s:.\-]*\d*", re.I)
 
-# Same two sentence shapes content_blocks.py used for definition-term
-# spotting ("Term is defined as ..." / "... is called Term"). Reused here,
-# under the same documented tradeoff as _LABEL_ANCHOR_RE above: a
-# definition-shaped sentence is itself the only cheap deterministic anchor
-# for "a definition physically lives here" -- Stage A only uses the match to
-# locate the line; Stage B still owns the block_type decision, and Stage D
-# is what actually pulls the term out (never the definition text itself,
-# per the copyright-safe "term + location only" rule these patterns have
-# always followed).
-_DEFINITION_TERM_FIRST_RE = re.compile(
-    r"^(?P<term>[A-Z][A-Za-z][A-Za-z \-]{1,38})\s+(?:is|are)\s+defined as\b")
-_DEFINITION_TERM_AFTER_RE = re.compile(
-    r"\b(?:is|are)\s+(?:called|known as|referred to as)\s+"
-    r"(?:the\s+|an?\s+)?(?P<term>[A-Za-z][A-Za-z \-]{1,38}?)(?=[.,;:]|\s+and\b|$)", re.I)
-_DEFINITION_TERM_STOPWORDS = {"the", "a", "an", "this", "that", "these", "those", "it", "its", "which", "who"}
+# _DEFINITION_TERM_FIRST_RE, _DEFINITION_TERM_AFTER_RE, and
+# _DEFINITION_TERM_STOPWORDS are imported from modules.text_utils
+# (M4.1A: pattern centralisation). Names are preserved via import aliases
+# so all existing call sites within this module continue to work unchanged.
 
 # Vertical gap (as a fraction of page height) within which two equation-like
 # lines are considered part of the same physical cluster rather than two
