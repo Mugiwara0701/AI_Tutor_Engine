@@ -18,15 +18,23 @@ PDF parsing, layout detection, or VLM inference (all explicitly out
 of scope here; see each module's own docstring).
 
 Concrete recognizers (M4.2B: NumberedHeadingRecognizer,
-HierarchicalHeadingRecognizer; M4.2C: RomanNumeralHeadingRecognizer,
+HierarchicalHeadingRecognizer, RomanNumeralHeadingRecognizer,
 AlphabeticHeadingRecognizer, ChapterNumberRecognizer,
-ChapterTitleRecognizer; and any later additions) belong in new
-modules inside this package, each registered with the shared
-`factory` via ONE `factory.register_class(name, RecognizerClass)`
-call — mirroring modules/recognizers/__init__.py's own
+ChapterTitleRecognizer — the first, generic/language-independent
+family, implemented in generic_recognizers.py; language-specific
+families are a later milestone's concern) belong in new modules
+inside this package, each registered with the shared `default_factory`
+via ONE `default_factory.register_class(name, RecognizerClass)` call
+below — mirroring modules/recognizers/__init__.py's own
 one-`register(...)`-call-per-recognizer convention. Nothing in
-base.py, config.py, registry.py, pipeline.py, or utils.py should need
-to change to add one.
+base.py, config.py, registry.py, pipeline.py, or utils.py needed to
+change to add these six.
+
+`default_factory` builds `default_registry` (both re-exported below)
+so callers get a ready-to-use, fully-populated
+`RecognitionPipeline(default_registry)` with zero setup — a caller
+wanting an isolated set of recognizers (e.g. tests) should still
+construct their own RecognizerFactory/RecognizerRegistry instead.
 
 Public API:
     HeadingRecognizer, RecognitionContext, RecognitionResult,
@@ -89,6 +97,34 @@ from modules.heading_recognizers.registry import (
     register,
     unregister,
 )
+from modules.heading_recognizers.generic_recognizers import (
+    AlphabeticHeadingRecognizer,
+    ChapterNumberRecognizer,
+    ChapterTitleRecognizer,
+    HierarchicalHeadingRecognizer,
+    NumberedHeadingRecognizer,
+    RomanNumeralHeadingRecognizer,
+)
+
+# -- M4.2B: register the generic recognizer family ---------------------
+#
+# `default_factory` is the ONE place a new recognizer class needs to be
+# registered (by name); `build_registry(default_registry)` then builds
+# one instance of each and registers it into the same `default_registry`
+# the plain register()/get()/all_recognizers() functions above already
+# operate on, so `default_registry`/`default_factory` stay consistent
+# with each other for the common "one registry for the whole process"
+# case. Adding a later recognizer family (M4.2C+) is meant to require
+# only more `default_factory.register_class(...)` calls here — nothing
+# above this block should need to change.
+default_factory = RecognizerFactory()
+default_factory.register_class(NumberedHeadingRecognizer.name, NumberedHeadingRecognizer)
+default_factory.register_class(HierarchicalHeadingRecognizer.name, HierarchicalHeadingRecognizer)
+default_factory.register_class(RomanNumeralHeadingRecognizer.name, RomanNumeralHeadingRecognizer)
+default_factory.register_class(AlphabeticHeadingRecognizer.name, AlphabeticHeadingRecognizer)
+default_factory.register_class(ChapterNumberRecognizer.name, ChapterNumberRecognizer)
+default_factory.register_class(ChapterTitleRecognizer.name, ChapterTitleRecognizer)
+default_factory.build_registry(default_registry)
 
 __all__ = [
     # base
@@ -111,6 +147,14 @@ __all__ = [
     "all_recognizers",
     # factory
     "RecognizerFactory",
+    "default_factory",
+    # M4.2B generic recognizers
+    "NumberedHeadingRecognizer",
+    "HierarchicalHeadingRecognizer",
+    "RomanNumeralHeadingRecognizer",
+    "AlphabeticHeadingRecognizer",
+    "ChapterNumberRecognizer",
+    "ChapterTitleRecognizer",
     # pipeline
     "RecognitionPipeline",
     "PipelineResult",
