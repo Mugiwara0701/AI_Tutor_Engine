@@ -10,14 +10,10 @@ shape it's most likely to be, and extracts it.
 Public API (used by modules/stage_d_extraction.py):
     candidates_for(block_type: str) -> List[Recognizer]
 
-To add a new educational object type:
-    1. Add a new Recognizer subclass (in an existing file here, or a new
-       one) implementing `recognize(block)` and, if it should ever fall
-       back to the VLM, either inherit FormulaFamilyRecognizer /
-       VisualFamilyRecognizer or override `vlm_fallback` directly.
-    2. Instantiate it and `register(...)` it below against whichever
-       Stage B block_type(s) it's a candidate for.
-No change to stage_d_extraction.py or to any other recognizer is needed.
+M4.1D: Added new recognizers:
+  - WorkedExampleRecognizer (procedure_recognizers)
+  - DiagramSubtypeRecognizer (visual_recognizers)
+  - FigureWithCaptionRecognizer (visual_recognizers)
 """
 from modules.recognizers.registry import register, candidates_for, registered_block_types
 
@@ -26,6 +22,7 @@ from modules.recognizers.formula_recognizers import (
 )
 from modules.recognizers.procedure_recognizers import (
     ProcedureRecognizer, AlgorithmRecognizer, JournalProcedureRecognizer,
+    WorkedExampleRecognizer,
 )
 from modules.recognizers.programming_recognizers import ProgrammingSyntaxRecognizer, PseudocodeRecognizer
 from modules.recognizers.accounting_recognizers import (
@@ -33,7 +30,7 @@ from modules.recognizers.accounting_recognizers import (
 )
 from modules.recognizers.visual_recognizers import (
     FlowchartRecognizer, GraphRecognizer, CircuitDiagramRecognizer, ConceptTableRecognizer,
-    GenericVisualRecognizer,
+    GenericVisualRecognizer, DiagramSubtypeRecognizer, FigureWithCaptionRecognizer,
 )
 from modules.recognizers.concept_recognizers import DefinitionRecognizer
 
@@ -47,6 +44,7 @@ _economic_identity = EconomicIdentityRecognizer()
 _procedure = ProcedureRecognizer()
 _algorithm = AlgorithmRecognizer()
 _journal_procedure = JournalProcedureRecognizer()
+_worked_example = WorkedExampleRecognizer()  # M4.1D
 
 _programming_syntax = ProgrammingSyntaxRecognizer()
 _pseudocode = PseudocodeRecognizer()
@@ -59,6 +57,8 @@ _flowchart = FlowchartRecognizer()
 _graph = GraphRecognizer()
 _circuit_diagram = CircuitDiagramRecognizer()
 _concept_table = ConceptTableRecognizer()
+_diagram_subtype = DiagramSubtypeRecognizer()         # M4.1D
+_figure_with_caption = FigureWithCaptionRecognizer()  # M4.1D
 _generic_visual = GenericVisualRecognizer()
 
 _definition = DefinitionRecognizer()
@@ -69,33 +69,34 @@ register(_math_identity, ["Formula Box", "Worked Example"])
 register(_chemical_reaction, ["Formula Box", "Worked Example"])
 register(_economic_identity, ["Formula Box", "Worked Example"])
 
-# --- Worked Example: procedure family (formula recognizers above are
-#     also candidates here, e.g. a worked example that's really just a
-#     restated formula with no explicit steps) ---------------------------
+# --- Worked Example: procedure family ----------------------------------
 register(_procedure, ["Worked Example"])
 register(_journal_procedure, ["Worked Example"])
+register(_worked_example, ["Worked Example"])     # M4.1D
 register(_algorithm, ["Worked Example", "Programming Syntax"])
 
-# --- Programming Syntax --------------------------------------------------
+# --- Programming Syntax ------------------------------------------------
 register(_programming_syntax, ["Programming Syntax"])
 register(_pseudocode, ["Programming Syntax"])
 
-# --- Accounting Format (and accounting-shaped Tables) --------------------
+# --- Accounting Format (and accounting-shaped Tables) -------------------
 register(_journal_format, ["Accounting Format", "Table"])
 register(_ledger, ["Accounting Format", "Table"])
 register(_accounting_rule, ["Accounting Format"])
 
-# --- Visual family: Flowchart / Decision Tree / Diagram / Figure / Table -
+# --- Visual family: Flowchart / Decision Tree / Diagram / Figure / Table
 register(_flowchart, ["Flowchart", "Diagram", "Decision Tree"])
 register(_graph, ["Figure", "Diagram"])
 register(_circuit_diagram, ["Diagram", "Figure"])
+register(_diagram_subtype, ["Diagram", "Figure"])         # M4.1D
+register(_figure_with_caption, ["Figure"])                 # M4.1D
 register(_concept_table, ["Table"])
 register(_generic_visual, [
     "Table", "Figure", "Diagram", "Flowchart", "Decision Tree",
     "Programming Syntax", "Accounting Format",
 ])
 
-# --- Definition -----------------------------------------------------------
+# --- Definition ---------------------------------------------------------
 register(_definition, ["Definition"])
 
 __all__ = ["register", "candidates_for", "registered_block_types"]

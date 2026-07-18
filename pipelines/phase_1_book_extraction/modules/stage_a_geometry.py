@@ -70,6 +70,10 @@ from modules.text_utils import (
     DEFINITION_TERM_AFTER_RE as _DEFINITION_TERM_AFTER_RE,
     TERM_STOPWORDS as _DEFINITION_TERM_STOPWORDS,
 )
+from modules.layout_quality import (
+    apply_layout_quality_passes,
+    suppress_cross_kind_visual_duplicates,
+)
 
 logger = logging.getLogger("ncert_pipeline.stage_a")
 
@@ -369,8 +373,17 @@ def _merge_cross_page_continuations(blocks: List[Block], num_pages: int,
 def build_hierarchical_blocks(structure: ChapterStructure, layout: Dict[str, List[VisualRegion]]) -> List[Block]:
     """Consumes structure.lines (text layer) + layout's visual regions
     (visual layer) and returns a flat list of top-level hierarchical
-    Blocks, per Stage A's contract. Order is page, then y0."""
+    Blocks, per Stage A's contract. Order is page, then y0.
+
+    M4.1B: After initial block assembly and cross-page continuation,
+    applies deterministic layout quality passes (cross-kind IoU
+    suppression, equation clustering improvements, definition grouping,
+    table false-positive suppression, etc.) via layout_quality.py.
+    """
     chapter_title = structure.chapter_title
+
+    # M4.1B: Suppress cross-kind visual duplicates before block assembly.
+    layout = suppress_cross_kind_visual_duplicates(layout)
 
     lines_by_page: Dict[int, List[Line]] = {}
     for l in structure.lines:
@@ -388,6 +401,15 @@ def build_hierarchical_blocks(structure: ChapterStructure, layout: Dict[str, Lis
     blocks.extend(_topic_heading_blocks(chapter_title, structure.topics))
 
     blocks = _merge_cross_page_continuations(blocks, structure.num_pages)
+
+    # M4.1B: Apply layout quality improvement passes.
+    pre_count = len(blocks)
+    blocks = apply_layout_quality_passes(blocks, lines=structure.lines)
+    post_count = len(blocks)
+    if pre_count != post_count:
+        logger.info("Stage A quality passes: %d -> %d blocks (removed %d).",
+                     pre_count, post_count, pre_count - post_count)
+
     blocks.sort(key=lambda b: (b.page, b.bbox[1]))
 
     logger.info("Stage A: built %d hierarchical block(s) for chapter '%s'.", len(blocks), chapter_title)

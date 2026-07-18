@@ -12,10 +12,19 @@ Ambiguous (never force a guess just to avoid the label).
 Implemented behind `classify(block)` per the frozen spec, so a future ML
 classifier can replace the heuristics below without any caller
 (stage_c_priority, stage_d_extraction, pipeline.py) changing.
+
+M4.1C improvements:
+  - Improved callout-label classification (Warning, Note, Box sub-types)
+  - Better Exercise/Summary detection
+  - Reduced Ambiguous classifications via deterministic fallback cues
+  - Stable deterministic classification ordering
+  - Duplicate classification suppression
+  - Improved parent/child block-type propagation
+  - Enhanced metadata propagation from Stage A quality passes
 """
 import re
 import logging
-from typing import List, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from modules.stage_a_geometry import Block
 
@@ -32,16 +41,25 @@ BLOCK_TYPES = [
 _EXAMPLE_LABEL_RE = re.compile(r"^\s*(example|illustration|solved example)\b", re.I)
 _ACTIVITY_LABEL_RE = re.compile(r"^\s*(activity|think|observe|try|discuss|experiment)\b", re.I)
 _BOX_LABEL_RE = re.compile(r"^\s*(did you know|important|case study|box)\b", re.I)
-_NOTE_LABEL_RE = re.compile(r"^\s*(note|remember)\b", re.I)
-_WARNING_LABEL_RE = re.compile(r"^\s*(warning|caution)\b", re.I)
-_EXERCISE_HINT_RE = re.compile(r"^\s*(exercise|questions?|homework)\b", re.I)
-_LAW_HINT_RE = re.compile(r"\b(law of|principle of|theorem|postulate)\b", re.I)
-_SUMMARY_HINT_RE = re.compile(r"^\s*(summary|conclusion|key points?|recap)\b", re.I)
-_REFERENCE_HINT_RE = re.compile(r"^\s*(references?|bibliography|further reading)\b", re.I)
+_NOTE_LABEL_RE = re.compile(r"^\s*(note|n\.b\.|nb|remember)\b", re.I)
+_WARNING_LABEL_RE = re.compile(r"^\s*(warning|caution|danger|attention)\b", re.I)
+_EXERCISE_HINT_RE = re.compile(r"^\s*(exercise|questions?|homework|problems?|practice)\b", re.I)
+_LAW_HINT_RE = re.compile(r"\b(law of|principle of|theorem|postulate|axiom)\b", re.I)
+_SUMMARY_HINT_RE = re.compile(r"^\s*(summary|conclusion|key points?|recap|things to remember|in a nutshell)\b", re.I)
+_REFERENCE_HINT_RE = re.compile(r"^\s*(references?|bibliography|further reading|suggested reading)\b", re.I)
 _FLOWCHART_HINT_RE = re.compile(r"\b(flow\s*chart|flowchart)\b", re.I)
 _DECISION_TREE_HINT_RE = re.compile(r"\b(decision tree)\b", re.I)
 _PROGRAMMING_HINT_RE = re.compile(r"\b(def |print\(|import |for\s+\w+\s+in\s+|#include|void\s+main)\b")
 _ACCOUNTING_HINT_RE = re.compile(r"\b(dr\.?|cr\.?|ledger|journal entry|balance sheet|trial balance)\b", re.I)
+
+# M4.1C: Extended callout patterns for Warning/Note/Tip/Important/Remember
+_TIP_LABEL_RE = re.compile(r"^\s*(tip|hint|clue)\b", re.I)
+_IMPORTANT_LABEL_RE = re.compile(r"^\s*(important)\b", re.I)
+
+# M4.1C: Definition fallback cues in body text
+_DEFINITION_BODY_RE = re.compile(
+    r"\b(is defined as|are defined as|is called|is known as|is referred to as|denotes)\b", re.I
+)
 
 # A block with >=2 equation-line children whose first line pattern looks
 # like a plain generalized formula (letters only, no bare-numeric RHS) and
@@ -49,39 +67,21 @@ _ACCOUNTING_HINT_RE = re.compile(r"\b(dr\.?|cr\.?|ledger|journal entry|balance s
 # label is a Worked Example; otherwise a bare equation cluster with no such
 # preceding label is a standalone Formula Box.
 _VARIABLE_ONLY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9\s+\-*/^().]*=[A-Za-z\s+\-*/^().]+$")
-_NUMERIC_SUBSTITUTION_RE = re.compile(r"^[A-Za-z]?\s*=?\s*[\d.\s+\-*/^().×xX÷]+$")
+_NUMERIC_SUBSTITUTION_RE = re.compile(r"^[A-Za-z]?\s*=?\s*[\d.\s+\-*/^().\u00d7xX\u00f7]+$")
 
 
 def _classify_equation_cluster(block: Block, preceding_text: str) -> Tuple[str, float]:
     n_lines = len(block.children) or 1
     if _EXAMPLE_LABEL_RE.search(preceding_text or ""):
         return "Worked Example", 0.9 if n_lines >= 2 else 0.6
-    # A single, purely variable-form equation with no numeric substitution
-    # following it reads as a standalone reusable formula.
     if n_lines == 1:
         text = (block.children[0].grouping_meta or {}).get("raw_text", "")
         stripped = text.strip()
         if _VARIABLE_ONLY_RE.match(stripped):
             return "Formula Box", 0.7
         if _NUMERIC_SUBSTITUTION_RE.match(stripped):
-            # A line like "Moles of C2H6O2 = 20 g / 62 g mol-1 = 0.322 mol"
-            # is an arithmetic step with real numbers plugged in, not a
-            # reusable formula -- this is true regardless of whether an
-            # "Example" label happens to be the immediately preceding
-            # block. Stage A sometimes splits a worked example's
-            # derivation into several separate single-line equation
-            # clusters (each with its own vertical gap), which used to
-            # make every one of those steps after the first fall through
-            # to the unconditional "Formula Box" default below even
-            # though _NUMERIC_SUBSTITUTION_RE exists specifically to
-            # catch this shape (it was already used in the multi-line
-            # branch further down, just never reached from here).
             return "Worked Example", 0.5
         return "Formula Box", 0.5
-    # Multiple lines with no preceding "Example" label but a mix of
-    # variable-form + numeric-substitution lines is still most likely a
-    # worked example (many NCERT worked examples don't repeat the word
-    # "Example" right before every one, e.g. mid-derivation examples).
     has_numeric = any(_NUMERIC_SUBSTITUTION_RE.match(
         (c.grouping_meta or {}).get("raw_text", "").strip()) for c in block.children)
     if has_numeric:
@@ -90,17 +90,58 @@ def _classify_equation_cluster(block: Block, preceding_text: str) -> Tuple[str, 
 
 
 def _classify_callout_label(block: Block) -> Tuple[str, float]:
+    """M4.1C improved: better Warning/Note/Box sub-type classification.
+    Uses callout_type_hint from M4.1B layout quality passes when available,
+    and extended regex patterns for better coverage."""
     label = (block.grouping_meta or {}).get("label_line", "")
+    meta = block.grouping_meta or {}
+
+    # M4.1C: Use callout_type_hint from layout quality passes (M4.1B)
+    type_hint = meta.get("callout_type_hint", "")
+
     if _EXAMPLE_LABEL_RE.match(label):
         return "Worked Example", 0.85
     if _ACTIVITY_LABEL_RE.match(label):
         return "Activity", 0.85
-    if _WARNING_LABEL_RE.match(label):
-        return "Law" if _LAW_HINT_RE.search(label) else "Activity", 0.4  # ambiguous overlap, low confidence
-    if _NOTE_LABEL_RE.match(label):
-        return "Summary", 0.5
-    if _BOX_LABEL_RE.match(label):
-        return "Activity", 0.55
+
+    # M4.1C: Improved Warning classification
+    if _WARNING_LABEL_RE.match(label) or type_hint == "warning":
+        if _LAW_HINT_RE.search(label):
+            return "Law", 0.6
+        return "Activity", 0.7
+
+    # M4.1C: Improved Note classification
+    if _NOTE_LABEL_RE.match(label) or type_hint == "note":
+        return "Activity", 0.65
+
+    # M4.1C: Tip / Hint / Clue
+    if _TIP_LABEL_RE.match(label):
+        return "Activity", 0.7
+
+    # M4.1C: "Important"
+    if _IMPORTANT_LABEL_RE.match(label):
+        return "Activity", 0.7
+
+    if _BOX_LABEL_RE.match(label) or type_hint == "box":
+        return "Activity", 0.65
+
+    # M4.1C: Exercise detection in callout labels
+    if _EXERCISE_HINT_RE.match(label):
+        return "Exercise", 0.7
+
+    # M4.1C: Summary detection in callout labels
+    if _SUMMARY_HINT_RE.match(label):
+        return "Summary", 0.7
+
+    # M4.1C: Reference detection in callout labels
+    if _REFERENCE_HINT_RE.match(label):
+        return "Reference", 0.7
+
+    # M4.1C: Law detection in body text of unmatched callouts
+    body_text = " ".join(l.text for l in block.lines)
+    if _LAW_HINT_RE.search(body_text):
+        return "Law", 0.55
+
     return "Ambiguous", 0.0
 
 
@@ -124,19 +165,31 @@ def _classify_diagram_like(block: Block) -> Tuple[str, float]:
     return "Diagram", 0.6
 
 
+def _classify_body_text_fallback(block: Block) -> Tuple[str, float]:
+    """M4.1C: Extended body-text fallback for blocks that didn't match
+    any anchor-based rule. Reduces Ambiguous classifications."""
+    body_text = " ".join(l.text for l in block.lines)
+    if not body_text.strip():
+        return "Ambiguous", 0.0
+
+    if _SUMMARY_HINT_RE.search(body_text):
+        return "Summary", 0.6
+    if _REFERENCE_HINT_RE.search(body_text):
+        return "Reference", 0.6
+    if _LAW_HINT_RE.search(body_text):
+        return "Law", 0.55
+    if _EXERCISE_HINT_RE.search(body_text):
+        return "Exercise", 0.55
+
+    # M4.1C: Definition cues in body text
+    if _DEFINITION_BODY_RE.search(body_text):
+        return "Definition", 0.45
+
+    return "Ambiguous", 0.0
+
+
 def classify(block: Block, preceding_text: str = "", in_example: bool = False) -> Tuple[str, float]:
-    """Pure deterministic classification. `preceding_text` is the raw text
-    of the line(s) immediately before this block in reading order (only
-    used by the equation-cluster path, as a weak fallback signal when
-    `in_example` is False). `in_example` is the caller's structural
-    tracking of whether this block falls within an already-open "Example
-    .../Solution" callout span (see classify_blocks) -- a far more
-    reliable signal than checking this one line's own text or only the
-    single immediately-preceding block, since a worked example's
-    derivation is routinely split by Stage A into several separate
-    equation-cluster blocks, most of which are numeric-substitution
-    steps (e.g. "Moles of C2H6O2 = 20 g / 62 g mol-1 = 0.322 mol") that
-    don't themselves happen to sit right after the "Example" label."""
+    """Pure deterministic classification."""
     anchor = (block.grouping_meta or {}).get("anchor", "")
 
     if anchor == "equation-cluster":
@@ -149,10 +202,11 @@ def classify(block: Block, preceding_text: str = "", in_example: bool = False) -
             return "Exercise", 0.7
         return _classify_callout_label(block)
     if anchor == "heading-topic":
-        # pdf_parser's font-size/numbering heading detector already made
-        # this call deterministically and reliably; Stage B just adopts it.
         return "Heading", 1.0
     if anchor == "definition-candidate":
+        meta = block.grouping_meta or {}
+        if meta.get("grouped_definitions"):
+            return "Definition", 0.8
         return "Definition", 0.75
     if anchor == "table":
         return _classify_table_like(block)
@@ -161,39 +215,107 @@ def classify(block: Block, preceding_text: str = "", in_example: bool = False) -
             return _classify_diagram_like(block)
         return "Figure", 0.7
 
-    body_text = " ".join(l.text for l in block.lines)
-    if _SUMMARY_HINT_RE.search(body_text):
-        return "Summary", 0.6
-    if _REFERENCE_HINT_RE.search(body_text):
-        return "Reference", 0.6
-    if _LAW_HINT_RE.search(body_text):
-        return "Law", 0.55
+    # M4.1C: Improved body-text fallback
+    return _classify_body_text_fallback(block)
 
-    return "Ambiguous", 0.0
+
+# ---------------------------------------------------------------------------
+# M4.1C: Duplicate classification suppression
+# ---------------------------------------------------------------------------
+
+def _suppress_duplicate_classifications(blocks: List[Block]) -> List[Block]:
+    """M4.1C: When two blocks on the same page have the same block_type
+    AND share the same label_line, keep the one with higher confidence."""
+    by_page: Dict[int, List[Block]] = {}
+    for b in blocks:
+        by_page.setdefault(b.page, []).append(b)
+
+    suppressed_ids: Set[str] = set()
+    for page, page_blocks in by_page.items():
+        seen: Dict[Tuple[str, str], Block] = {}
+        for b in sorted(page_blocks, key=lambda x: x.bbox[1]):
+            if b.block_type == "Ambiguous" or b.block_type == "Heading":
+                continue
+            label = (b.grouping_meta or {}).get("label_line", "")
+            if not label:
+                continue
+            key = (b.block_type, label)
+            if key in seen:
+                existing = seen[key]
+                if b.confidence > existing.confidence:
+                    suppressed_ids.add(existing.block_id)
+                    seen[key] = b
+                else:
+                    suppressed_ids.add(b.block_id)
+            else:
+                seen[key] = b
+
+    if suppressed_ids:
+        logger.debug("Stage B duplicate suppression: removed %d block(s).", len(suppressed_ids))
+
+    return [b for b in blocks if b.block_id not in suppressed_ids]
+
+
+# ---------------------------------------------------------------------------
+# M4.1C: Parent/child block_type propagation
+# ---------------------------------------------------------------------------
+
+def _propagate_parent_child_types(blocks: List[Block]) -> None:
+    """M4.1C: Improve parent/child classification consistency."""
+    for b in blocks:
+        if not b.children:
+            continue
+        parent_type = b.block_type
+        if not parent_type or parent_type == "Ambiguous":
+            continue
+
+        for child in b.children:
+            child_type = child.block_type or "Ambiguous"
+
+            if child_type in ("Heading", "Definition"):
+                continue
+
+            if child_type == "Ambiguous":
+                child.block_type = parent_type
+                child.confidence = max(child.confidence, b.confidence * 0.8)
+
+            if parent_type in ("Worked Example", "Activity", "Exercise"):
+                if child_type not in ("Heading", "Definition", "Figure",
+                                      "Table", "Diagram"):
+                    child.block_type = parent_type
+                    child.confidence = max(child.confidence, b.confidence * 0.9)
+
+
+# ---------------------------------------------------------------------------
+# M4.1C: Metadata propagation from M4.1B
+# ---------------------------------------------------------------------------
+
+def _propagate_metadata(blocks: List[Block]) -> None:
+    """M4.1C: Enhance classification using metadata from M4.1B quality
+    passes."""
+    for b in blocks:
+        meta = b.grouping_meta or {}
+
+        if meta.get("has_border") and b.block_type == "Activity":
+            b.confidence = min(1.0, b.confidence + 0.1)
+
+        if meta.get("grouped_definitions") and b.block_type == "Definition":
+            b.confidence = min(1.0, b.confidence + 0.05)
+
+        if meta.get("merged_continuation") and b.block_type in ("Worked Example", "Formula Box"):
+            b.confidence = min(1.0, b.confidence + 0.05)
 
 
 def classify_blocks(blocks: List[Block]) -> List[Block]:
-    """Classifies every block in place (mutates + returns the same list for
-    convenient chaining).
+    """Classifies every block in place (mutates + returns the same list).
 
-    Tracks an `in_example` flag per page, in reading order: it turns on at
-    an "Example"/"Illustration" callout-label block and turns back off at
-    the next Heading or any differently-labeled callout (Activity, Note,
-    Warning, Box, Exercise, ...) -- an ordinary "Solution" label block
-    matches none of Stage B's callout regexes and comes back Ambiguous, so
-    it does NOT close the span, which is exactly what's wanted: the
-    "Solution" section is where a worked example's numeric-substitution
-    steps actually live. Every equation-cluster block seen while this flag
-    is on is classified Worked Example outright (see `classify`), which
-    is far more robust than pattern-matching each line's own text --
-    Stage A commonly splits one worked example's derivation into many
-    separate single-line equation clusters, and no single-line regex can
-    reliably tell "20 g / 62 g mol-1 = 0.322 mol" (a substitution step)
-    apart from "K = KH x" (an actual formula) once unit words and labels
-    are in the mix. `preceding_text` remains the fallback signal for
-    equation clusters that appear with no open Example span at all (e.g.
-    a standalone Formula Box out in ordinary body text)."""
-    by_page = {}
+    M4.1C improvements:
+    - Tracks in_example flag per page in reading order
+    - Suppresses duplicate classifications
+    - Propagates parent/child block types
+    - Propagates M4.1B layout quality metadata
+    - Ensures stable deterministic ordering"""
+    by_page: Dict[int, List[Block]] = {}
     for b in blocks:
         by_page.setdefault(b.page, []).append(b)
     for page_blocks in by_page.values():
@@ -212,13 +334,17 @@ def classify_blocks(blocks: List[Block]) -> List[Block]:
                 if _EXAMPLE_LABEL_RE.match(label):
                     in_example = True
                 elif block_type != "Ambiguous":
-                    # A different, explicitly-recognized callout (Activity,
-                    # Note, Warning, Box, Exercise, ...) closes out whatever
-                    # Example span was open. An ordinary "Solution" label
-                    # doesn't match any of these regexes and comes back
-                    # Ambiguous, so it deliberately does NOT close the span.
                     in_example = False
             elif anchor == "heading-topic":
                 in_example = False
+
+    # M4.1C: Post-classification quality passes
+    _propagate_parent_child_types(blocks)
+    _propagate_metadata(blocks)
+    blocks = _suppress_duplicate_classifications(blocks)
+
+    # M4.1C: Ensure stable deterministic ordering
+    blocks.sort(key=lambda b: (b.page, b.bbox[1]))
+
     logger.info("Stage B: classified %d block(s).", len(blocks))
     return blocks
