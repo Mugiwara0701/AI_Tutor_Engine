@@ -141,7 +141,7 @@ class NumberedHeadingRecognizer(HeadingRecognizer):
 # Every segment must be purely numeric (this recognizer is the
 # arabic-hierarchical family only — an alpha/roman segment such as
 # "IV.a" is out of scope here and is left unmatched by design).
-_HIERARCHICAL_SEGMENT_RE = re.compile(r"^\d{1,3}$")
+_HIERARCHICAL_SEGMENT_RE = re.compile(r"^[0-9]{1,3}$")
 
 
 class HierarchicalHeadingRecognizer(HeadingRecognizer):
@@ -212,8 +212,8 @@ class RomanNumeralHeadingRecognizer(HeadingRecognizer):
         text = _clean(context.text)
         if not text:
             return False
-        bare = len(text) <= 8 and text.isalpha()
-        marked = len(text) <= 9 and len(text) >= 2 and text[:-1].isalpha() and text[-1] in ")."
+        bare = len(text) <= 8 and text.isascii() and text.isalpha()
+        marked = len(text) <= 9 and len(text) >= 2 and text[:-1].isascii() and text[:-1].isalpha() and text[-1] in ")."
         return bare or marked
 
     def recognize(self, context: RecognitionContext) -> Optional[RecognitionResult]:

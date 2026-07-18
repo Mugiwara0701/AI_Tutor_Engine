@@ -110,7 +110,20 @@ class RecognitionPipeline:
         matches: List[RecognitionResult] = []
 
         for recognizer in self._registry.enabled_recognizers():
-            if not recognizer.supports(context):
+            try:
+                supported = recognizer.supports(context)
+            except Exception as exc:  # noqa: BLE001 - mirrors safe_recognize()'s own deliberately broad catch
+                attempts.append(AttemptRecord(
+                    recognizer.name,
+                    RecognitionOutcome.FAILED,
+                    failure=FailureResult(
+                        recognizer_name=recognizer.name,
+                        reason=f"supports() raised: {exc}",
+                        exception_type=type(exc).__name__,
+                    ),
+                ))
+                continue
+            if not supported:
                 attempts.append(AttemptRecord(recognizer.name, RecognitionOutcome.SKIPPED))
                 continue
 
