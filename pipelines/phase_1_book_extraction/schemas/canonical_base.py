@@ -92,3 +92,14 @@ class CanonicalObjectBase(BaseModel):
     validation_status: str = "unvalidated"
     duplicate_lineage: List[Dict[str, Any]] = Field(default_factory=list)
     creation_metadata: CreationMetadata = Field(default_factory=CreationMetadata)
+
+    # M3.4: code-structural metadata (programming_syntax objects only).
+    # Populated by copyright_sanitizer._code_structural_metadata() from the
+    # reusable_syntax text already in hand at the M3.2/M3.3 checkpoint,
+    # before that text is discarded.  Both fields are None / [] on all other
+    # object types — the schema never enforces their presence, only their
+    # vocabulary (when present) via structural_validator rule 13.
+    # Closed vocabularies: copyright_sanitizer.CODE_LANGUAGE_VOCAB and
+    # copyright_sanitizer.CODE_CONSTRUCT_VOCAB.
+    code_language: Optional[str] = None
+    code_construct_types: List[str] = Field(default_factory=list)

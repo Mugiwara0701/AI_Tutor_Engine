@@ -268,14 +268,109 @@ def _enforce_word_cap_local(text: str, max_words: int) -> str:
     return " ".join(words[:max_words])
 
 
+
+# --------------------------------------------------------------------------
+# M3.4: Code-language and code-construct-type closed vocabularies.
+#
+# These are the ONLY permitted values for `code_language` and
+# `code_construct_types`. The validator enforces membership; the sanitizer
+# emits only values from these sets. Neither list may be extended without a
+# corresponding MIGRATIONS.md entry and a STRUCTURAL_VALIDATION_VERSION bump.
+#
+# Design: classification is pure keyword/regex detection over the
+# already-in-hand `reusable_syntax` text.  No new VLM call, no new OCR
+# pass, no PDF re-read.  Derivation happens in the same helper that already
+# computes `code_line_count`/`has_code_content` from the same string, in
+# the same moment, before the text is discarded.
+# --------------------------------------------------------------------------
+
+# Closed vocabulary for code_language.
+# Each entry is (canonical_label, detection_regex).  Order matters:
+# first match wins.  "pseudocode" is the fallback for blocks that cleared
+# PseudocodeRecognizer's keyword gate but carry no language-specific tokens.
+_CODE_LANGUAGE_PATTERNS: List[Tuple[str, re.Pattern]] = [
+    # Order matters: first match wins.  More-specific languages (java,
+    # javascript, sql) must precede c_cpp, whose trailing-semicolon
+    # pattern is broad enough to fire on SQL and modern JS snippets.
+    ("python",     re.compile(r"\bdef\s+\w+\s*\(|\bimport\s+\w+|\bprint\s*\(|\belif\b|:\s*$", re.M)),
+    ("java",       re.compile(r"\bpublic\s+(?:static\s+)?(?:void|class)\b|\bSystem\.out\.print")),
+    ("javascript", re.compile(r"\bfunction\s+\w+\s*\(|\bconst\s+\w+\s*=|\bconsole\.log\s*\(")),
+    ("sql",        re.compile(r"\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|WHERE)\b", re.I)),
+    ("c_cpp",      re.compile(r"#include\s*[<\"]|\bvoid\s+main\s*\(|\bprintf\s*\(|;[ \t]*$", re.M)),
+    ("pseudocode", re.compile(r"\b(?:begin|end|procedure|function|input|output|algorithm|pseudocode)\b", re.I)),
+]
+
+
+# Every value the sanitizer may emit for code_language.
+CODE_LANGUAGE_VOCAB: frozenset = frozenset(
+    label for label, _ in _CODE_LANGUAGE_PATTERNS
+) | frozenset(["other"])
+
+# Closed vocabulary for code_construct_types.
+# Each entry is (construct_label, detection_regex).  All matching
+# constructs are reported (unlike code_language, this is multi-valued).
+_CODE_CONSTRUCT_PATTERNS: List[Tuple[str, re.Pattern]] = [
+    ("loop",              re.compile(r"\bfor\b|\bwhile\b|\brepeat\b|\bdo\b", re.I)),
+    ("conditional",       re.compile(r"\bif\b|\belse\b|\belif\b|\bswitch\b|\bcase\b", re.I)),
+    ("function_def",      re.compile(r"\bdef\s+\w+\s*\(|\bfunction\s+\w+\s*\(|\bvoid\s+\w+\s*\(|\bprocedure\s+\w+", re.I)),
+    ("class_def",         re.compile(r"\bclass\s+\w+", re.I)),
+    ("import_statement",  re.compile(r"\bimport\s+\w+|\binclude\b", re.I)),
+    ("assignment",        re.compile(r"(?<![=!<>])=(?!=)")),
+    ("return_statement",  re.compile(r"\breturn\b", re.I)),
+    ("print_statement",   re.compile(r"\bprint\s*\(|\bprintf\s*\(|\bconsole\.log\s*\(|\bSystem\.out\.print", re.I)),
+    ("exception_handling", re.compile(r"\btry\b|\bcatch\b|\bexcept\b|\bfinally\b|\bthrow\b|\braise\b", re.I)),
+    ("comment",           re.compile(r"^\s*#|^\s*//|/\*|\*/", re.M)),
+]
+
+# Every value the sanitizer may emit for code_construct_types entries.
+CODE_CONSTRUCT_VOCAB: frozenset = frozenset(label for label, _ in _CODE_CONSTRUCT_PATTERNS)
+
+
+def _detect_code_language(code_text: str) -> str:
+    """Returns the single best-fit `code_language` label for the snippet.
+    Pure keyword/regex — no VLM, no OCR, no PDF access.
+    Returns "other" when no pattern matches."""
+    for label, pattern in _CODE_LANGUAGE_PATTERNS:
+        if pattern.search(code_text):
+            return label
+    return "other"
+
+
+def _detect_code_constructs(code_text: str) -> List[str]:
+    """Returns the sorted list of all `code_construct_types` detected in
+    the snippet.  All matching construct labels are included; order is
+    deterministic (sorted by label name) so test assertions are stable.
+    Pure keyword/regex — no VLM, no OCR, no PDF access."""
+    return sorted(
+        label
+        for label, pattern in _CODE_CONSTRUCT_PATTERNS
+        if pattern.search(code_text)
+    )
+
+
 def _code_structural_metadata(code_text: str) -> Dict[str, Any]:
     """Turns a raw code/pseudocode snippet into copyright-safe structural
-    metadata: how many non-blank lines it had and whether it carried any
-    content at all — never the code's own tokens/text."""
-    lines = [l for l in (code_text or "").splitlines() if l.strip()]
+    metadata: how many non-blank lines it had, whether it carried any
+    content at all, what syntax family it belongs to (code_language), and
+    which structural constructs are present (code_construct_types).
+
+    M3.4 adds code_language and code_construct_types to the two fields
+    this helper already produced (code_line_count, has_code_content).
+    All four are derived from the same in-hand `code_text` string, in
+    the same single pass, before the text is discarded — no new VLM call,
+    no new OCR pass, no PDF re-read (frozen M3.4 design constraints §6-8).
+
+    The two new fields are only populated when the snippet has content;
+    they are None for empty/whitespace-only input so consumers can
+    distinguish "no code" from "code with undetected language/constructs"."""
+    lines = [ln for ln in (code_text or "").splitlines() if ln.strip()]
+    has_content = bool(lines)
     return {
         "code_line_count": len(lines),
-        "has_code_content": bool(lines),
+        "has_code_content": has_content,
+        # M3.4 additions — None when there is nothing to classify.
+        "code_language": _detect_code_language(code_text) if has_content else None,
+        "code_construct_types": _detect_code_constructs(code_text) if has_content else [],
     }
 
 

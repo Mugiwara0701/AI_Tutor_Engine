@@ -1,5 +1,47 @@
 # Chapter JSON schema migrations
 
+## 4.0.0 -> 4.1.0 — Milestone 3.4, Code-Structural Metadata
+
+**Type:** MINOR (purely additive optional fields; no field removed, no
+existing field's meaning changed).
+
+**What changed:** two new optional fields are now emitted on
+`educational_objects[]` entries whose `educational_object_type` is
+`"programming_syntax"` and whose `source` is `"deterministic"`:
+
+| New field | Type | Derivation |
+|---|---|---|
+| `code_language` | `string \| null` | Single best-fit syntax family detected by keyword/regex over `reusable_syntax` before it is discarded.  Closed vocabulary: `python`, `c_cpp`, `java`, `javascript`, `sql`, `pseudocode`, `other`. |
+| `code_construct_types` | `List[string]` | All structural construct labels detected in the same pass.  Closed vocabulary: `assignment`, `class_def`, `comment`, `conditional`, `exception_handling`, `function_def`, `import_statement`, `loop`, `print_statement`, `return_statement`. |
+
+Both fields are `None` / `[]` when the object has no code content or is
+not a `programming_syntax` object, so all non-code objects are completely
+unaffected.
+
+**Why MINOR, not MAJOR:** purely additive.  No existing field is removed,
+renamed, or changes meaning.  A consumer that does not read these fields
+receives the same data as before; `EducationalObject` is already
+`extra="allow"` so new keys never cause schema-validation failures.
+
+**Structural validator:** rule 13 (`code_vocab_membership`) is added in
+this milestone (`STRUCTURAL_VALIDATION_VERSION` bumped from `1.0.0` to
+`1.1.0`).  It raises an ERROR for an unknown `code_language` value and a
+WARNING for an unknown `code_construct_types` entry.
+
+**No new pipeline stage:** both fields are derived inside the existing
+`copyright_sanitizer._code_structural_metadata()` helper, which is
+already called from `sanitize_educational_objects()` at the same
+checkpoint that already computes `code_line_count`/`has_code_content`
+from the same `reusable_syntax` string.  No new VLM call, no new OCR
+pass, no PDF re-read.
+
+**Rejected fields (permanently out of scope for M3.4 and Phase 1):**
+`related_object_ids`, `equation_role`, `pedagogical_pattern`,
+`account_category`, `visual_subtype`, `step_dependency_order`.  See
+`M3.4_AUDIT.md` for the per-field rejection rationale.
+
+
+
 Tracks `config.SCHEMA_VERSION` (MAJOR.MINOR.PATCH, per config.py's own
 policy comment) history for the exported Chapter JSON
 (`schemas/chapter_schema.py: ChapterJSON`).

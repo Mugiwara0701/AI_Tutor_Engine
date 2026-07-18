@@ -134,10 +134,11 @@ import logging
 from schemas.chapter_schema import ChapterJSON
 from modules.topic_linker import TOPIC_REVERSE_FIELDS
 from config import MAX_SEMANTIC_DESCRIPTION_WORDS, MAX_CAPTION_WORDS
+from modules.copyright_sanitizer import CODE_LANGUAGE_VOCAB, CODE_CONSTRUCT_VOCAB
 
 logger = logging.getLogger("ncert_pipeline.structural_validator")
 
-STRUCTURAL_VALIDATION_VERSION = "1.0.0"
+STRUCTURAL_VALIDATION_VERSION = "1.1.0"
 
 ERROR = "ERROR"
 WARNING = "WARNING"
@@ -1082,6 +1083,99 @@ def _check_source_text_leakage(chapter_dict: Dict[str, Any]) -> List[Dict[str, A
 
 
 # --------------------------------------------------------------------------
+# 13. M3.4 — code_language / code_construct_types enum-membership
+# --------------------------------------------------------------------------
+# A generalised closed-vocabulary check: for every educational object that
+# carries `code_language` or `code_construct_types`, the value(s) must fall
+# within the authoritative vocabularies declared in copyright_sanitizer.py
+# (CODE_LANGUAGE_VOCAB / CODE_CONSTRUCT_VOCAB).
+#
+# Design notes:
+# - This is a sibling rule, NOT a modification of _check_source_text_leakage.
+#   Source-text leakage checks for *prose fields*; this checks for *enum
+#   membership* on structural-metadata fields.  The concerns are orthogonal.
+# - Severity: ERROR for an unknown code_language value (the field is a single
+#   canonical label — anything outside the vocab indicates a bug or an
+#   out-of-vocabulary extension that was not reviewed); WARNING for an unknown
+#   entry inside code_construct_types (the field is a list and a single rogue
+#   value does not corrupt the others, so the remaining entries remain useful).
+# - Only `educational_objects` is scanned: code_language/code_construct_types
+#   are never populated on any other section.  The rule is scoped accordingly.
+# --------------------------------------------------------------------------
+
+def _check_code_vocab_membership(chapter_dict: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Rule 13 (M3.4): every educational object that carries
+    `code_language` must use a value from CODE_LANGUAGE_VOCAB, and every
+    entry inside `code_construct_types` must come from CODE_CONSTRUCT_VOCAB.
+
+    Fields that are absent or None are silently skipped — these fields are
+    optional and only appear on `programming_syntax` objects.  An empty
+    `code_construct_types` list is also silently skipped."""
+    issues: List[Dict[str, Any]] = []
+    section = "educational_objects"
+
+    for idx, obj in enumerate(_get_section(chapter_dict, section)):
+        if not isinstance(obj, dict):
+            continue
+        label = _obj_label(section, idx, obj)
+        obj_id = obj.get("id")
+        obj_type = obj.get("educational_object_type") or obj.get("object_type")
+
+        # --- code_language ---
+        lang = obj.get("code_language")
+        if lang is not None:
+            if not isinstance(lang, str):
+                issues.append(_error(
+                    "code_language_wrong_type",
+                    f"{label}.code_language must be a string, got {type(lang).__name__}",
+                    section=section, object_id=obj_id, object_type=obj_type,
+                    details={"field": "code_language", "value": repr(lang)},
+                ))
+            elif lang not in CODE_LANGUAGE_VOCAB:
+                issues.append(_error(
+                    "code_language_unknown_value",
+                    f"{label}.code_language value {lang!r} is not in the closed "
+                    f"vocabulary {sorted(CODE_LANGUAGE_VOCAB)}",
+                    section=section, object_id=obj_id, object_type=obj_type,
+                    details={"field": "code_language", "value": lang,
+                             "allowed": sorted(CODE_LANGUAGE_VOCAB)},
+                ))
+
+        # --- code_construct_types ---
+        constructs = obj.get("code_construct_types")
+        if constructs is not None:
+            if not isinstance(constructs, list):
+                issues.append(_error(
+                    "code_construct_types_wrong_type",
+                    f"{label}.code_construct_types must be a list, got "
+                    f"{type(constructs).__name__}",
+                    section=section, object_id=obj_id, object_type=obj_type,
+                    details={"field": "code_construct_types"},
+                ))
+            else:
+                for entry in constructs:
+                    if not isinstance(entry, str):
+                        issues.append(_warn(
+                            "code_construct_types_non_string_entry",
+                            f"{label}.code_construct_types contains a non-string entry: "
+                            f"{entry!r}",
+                            section=section, object_id=obj_id, object_type=obj_type,
+                            details={"field": "code_construct_types", "value": repr(entry)},
+                        ))
+                    elif entry not in CODE_CONSTRUCT_VOCAB:
+                        issues.append(_warn(
+                            "code_construct_types_unknown_value",
+                            f"{label}.code_construct_types contains unknown value {entry!r}; "
+                            f"allowed values: {sorted(CODE_CONSTRUCT_VOCAB)}",
+                            section=section, object_id=obj_id, object_type=obj_type,
+                            details={"field": "code_construct_types", "value": entry,
+                                     "allowed": sorted(CODE_CONSTRUCT_VOCAB)},
+                        ))
+
+    return issues
+
+
+# --------------------------------------------------------------------------
 # Entry point
 # --------------------------------------------------------------------------
 
@@ -1098,6 +1192,7 @@ _RULES: List[Tuple[str, Any]] = [
     ("missing_provenance", _check_missing_provenance),
     ("parent_child_hierarchy", _check_parent_child_hierarchy),
     ("source_text_leakage", _check_source_text_leakage),
+    ("code_vocab_membership", _check_code_vocab_membership),  # M3.4
 ]
 
 
