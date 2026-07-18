@@ -38,6 +38,12 @@ class HeadingClassification(str, Enum):
     ALPHABETIC = "alphabetic"
     CHAPTER_NUMBER = "chapter_number"
     CHAPTER_TITLE = "chapter_title"
+    #: M4.2D: a bare language-specific structural keyword heading with
+    #: no attached numbering (e.g. Hindi "सारांश", Sanskrit "सारांशः").
+    #: Additive member only — no change to the framework core that
+    #: consumes this enum (registry/factory/pipeline), per this class's
+    #: own "adding a new member is additive" contract above.
+    SECTION_KEYWORD = "section_keyword"
     UNCLASSIFIED = "unclassified"
 
 

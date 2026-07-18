@@ -129,6 +129,51 @@ def compare_hierarchical(a: str, b: str) -> Optional[int]:
 
 
 # ===========================================================================
+# Devanagari numeral parsing (M4.2D: Hindi/Sanskrit heading support)
+# ===========================================================================
+
+# Devanagari digits ०-९ (U+0966-U+096F), positionally identical to
+# ASCII 0-9 — a plain per-character translation table is sufficient;
+# no place-value/grouping logic is needed since Devanagari numerals
+# use the same base-10 positional notation as Arabic numerals.
+_DEVANAGARI_DIGIT_TO_ARABIC = str.maketrans("०१२३४५६७८९", "0123456789")
+_DEVANAGARI_DIGITS = frozenset("०१२३४५६७८९")
+
+
+def is_devanagari_numeral(token: str) -> bool:
+    """True if `token` consists entirely of Devanagari digits (० - ९)
+    and is non-empty. Mirrors `is_roman_numeral`'s "empty string is
+    never valid" convention."""
+    token = (token or "").strip()
+    return bool(token) and all(ch in _DEVANAGARI_DIGITS for ch in token)
+
+
+def devanagari_to_arabic(token: str) -> Optional[str]:
+    """Translates a Devanagari-digit numeral to its ASCII-digit
+    equivalent (e.g. "५" -> "5", "१२" -> "12"). Returns None for
+    anything that isn't a well-formed Devanagari numeral — never
+    raises, mirroring `roman_to_int`'s "malformed input is not a
+    match" convention rather than an error."""
+    if not is_devanagari_numeral(token):
+        return None
+    return token.translate(_DEVANAGARI_DIGIT_TO_ARABIC)
+
+
+def normalize_numeral(token: str) -> Optional[str]:
+    """Accepts either an Arabic-digit or a Devanagari-digit numeral
+    and returns its ASCII-digit form, or None if `token` is neither
+    (e.g. mixed digit systems in one token, or non-numeric content).
+    The single entry point recognizers should use when a heading's
+    numbering marker may be written in either system."""
+    token = (token or "").strip()
+    if not token:
+        return None
+    if token.isascii() and token.isdigit():
+        return token
+    return devanagari_to_arabic(token)
+
+
+# ===========================================================================
 # Common heading text utilities
 # ===========================================================================
 
@@ -207,6 +252,9 @@ __all__ = [
     "parse_hierarchical_number",
     "hierarchical_depth",
     "compare_hierarchical",
+    "is_devanagari_numeral",
+    "devanagari_to_arabic",
+    "normalize_numeral",
     "ALPHABETIC_MARKER_RE",
     "is_alphabetic_marker",
     "alphabetic_marker_to_index",

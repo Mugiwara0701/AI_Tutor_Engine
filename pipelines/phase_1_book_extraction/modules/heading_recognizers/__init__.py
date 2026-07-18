@@ -105,6 +105,10 @@ from modules.heading_recognizers.generic_recognizers import (
     NumberedHeadingRecognizer,
     RomanNumeralHeadingRecognizer,
 )
+from modules.heading_recognizers.hindi_sanskrit_recognizers import (
+    HindiHeadingRecognizer,
+    SanskritHeadingRecognizer,
+)
 
 # -- M4.2B: register the generic recognizer family ---------------------
 #
@@ -124,6 +128,9 @@ default_factory.register_class(RomanNumeralHeadingRecognizer.name, RomanNumeralH
 default_factory.register_class(AlphabeticHeadingRecognizer.name, AlphabeticHeadingRecognizer)
 default_factory.register_class(ChapterNumberRecognizer.name, ChapterNumberRecognizer)
 default_factory.register_class(ChapterTitleRecognizer.name, ChapterTitleRecognizer)
+# -- M4.2D: register the Hindi/Sanskrit recognizer family ---------------
+default_factory.register_class(HindiHeadingRecognizer.name, HindiHeadingRecognizer)
+default_factory.register_class(SanskritHeadingRecognizer.name, SanskritHeadingRecognizer)
 default_factory.build_registry(default_registry)
 
 __all__ = [
@@ -155,6 +162,9 @@ __all__ = [
     "AlphabeticHeadingRecognizer",
     "ChapterNumberRecognizer",
     "ChapterTitleRecognizer",
+    # M4.2D Hindi/Sanskrit recognizers
+    "HindiHeadingRecognizer",
+    "SanskritHeadingRecognizer",
     # pipeline
     "RecognitionPipeline",
     "PipelineResult",
