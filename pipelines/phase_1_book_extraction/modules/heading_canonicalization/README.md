@@ -196,9 +196,89 @@ package yet:
 - Roman / Arabic / Devanagari numeral conversion
 - Title normalization, Unicode normalization, OCR cleanup
 - Sequence validation, duplicate detection, hierarchy validation
+  (**now implemented — see "M4.3D — Structural Validation" below**)
 - Stage B integration, Document Structure Tree integration,
   educational object extraction
 - Any redesign of the M4.2 heading recognition framework (untouched —
   see the top-level deliverables list for confirmation)
 
 These belong to M4.3B and later.
+
+## M4.3D — Structural Validation
+
+`structural_validation.py` adds one more concrete canonicalizer,
+`StructuralValidator`, into this same `default_registry` — no changes
+to `base.py`, `config.py`, `registry.py`, `pipeline.py`, or
+`validation.py`, exactly per the "extension mechanism" above. It's
+registered with `default_priority = 200`, higher than every M4.3B
+canonicalizer, so it always runs last and always sees each heading's
+final `canonical_number` / `numbering_system` / `canonical_type`.
+
+**Scope.** It validates the *relationships between* headings — it
+recognizes nothing, canonicalizes nothing, and never rewrites a
+heading's numbering, type, or title. It only reads fields other
+canonicalizers already populated and produces diagnostics.
+
+**Rule groups:**
+
+1. **Number sequence validation** — duplicate / decreasing / skipped
+   numbering, and a mid-sequence numbering-system switch, compared
+   against the immediately preceding heading via
+   `CanonicalizationContext.preceding_canonical_number` /
+   `preceding_numbering_system` — the two fields `base.py` already
+   reserved for exactly this purpose. Only applies when both headings'
+   `numbering_system` is one of the orderable ones M4.3B actually
+   produces (`ARABIC`, `ROMAN`, `DEVANAGARI`).
+
+2. **Hierarchy validation** — orphan headings and invalid level jumps,
+   using `CanonicalHeading.level` (M4.2's recognized depth) and one
+   additional piece of context: the preceding heading's own `level`.
+   Because `CanonicalizationContext`'s field set is frozen (the M4.3A/
+   B/C API freeze), this travels through the existing, explicitly
+   opaque `context.metadata` mapping under the documented key
+   `structural_validation.PRECEDING_LEVEL_METADATA_KEY` rather than a
+   new dataclass field. Descending to a shallower or equal level
+   (dedenting) is always valid; only jumping *more than one level
+   deeper at once* is flagged.
+
+3. **Canonical consistency validation** — internal agreement between
+   one heading's own `canonical_number`, `numbering_system`,
+   `canonical_type`, and `level` (no context needed).
+
+**Output.** `StructuralValidator.canonicalize()` sets
+`CanonicalHeading.validation_status` from the combined
+`validation.ValidationResult`, appends one human-readable line per
+diagnostic to `CanonicalHeading.diagnostics`, and attaches the full
+structured `ValidationResult` under
+`heading.metadata["structural_validation"]` for any downstream
+consumer that wants more than the coarse status.
+
+**Failure handling.** Every rule degrades to a diagnostic, never an
+exception: a non-integer `canonical_number`, a missing `level`, no
+preceding context at all, or a malformed `metadata` entry simply
+narrows which rules can run. A genuine bug inside the canonicalizer
+itself is still caught by `CanonicalizationPipeline`'s own existing
+per-canonicalizer isolation (`safe_canonicalize`/`AttemptRecord`,
+unchanged) — extraction, recognition, and every other canonicalizer's
+output are preserved regardless.
+
+**Production wiring.** `modules/stage_b_classify.py` builds the
+`CanonicalizationContext` for each heading from the *previous* heading
+processed on the same page — its `canonical_number` /
+`numbering_system` (read back from the `heading_canonicalization`
+metadata M4.3C already attaches) and its recognized `level` (read from
+that same heading's own `heading_recognition["level"]`, **not** Stage
+A's separate geometry-derived `level` used for
+`preceding_heading_level` in `RecognitionContext` — the two are
+different notions of "level" and must not be conflated). This is
+config-gated by `config.ENABLE_STRUCTURAL_VALIDATION`
+(`NCERT_ENABLE_STRUCTURAL_VALIDATION` env var, default on), applied
+once at import time via the registry's own existing `enable()`/
+`disable()` lifecycle API — no second configuration mechanism.
+
+**Out of scope (M4.3D):** heading recognition, heading
+canonicalization/numbering conversion, title normalization, Document
+Structure Tree generation. See `tests/test_m43d_structural_validation.py`
+for full coverage (number sequence, hierarchy, canonical consistency,
+failure handling, determinism, and production-wiring integration
+tests).

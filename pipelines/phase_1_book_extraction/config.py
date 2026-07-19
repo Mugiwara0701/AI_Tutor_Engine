@@ -99,22 +99,6 @@ DETERMINISTIC_CONFIDENCE_FLOOR = float(os.environ.get("NCERT_DET_CONFIDENCE_FLOO
 ENABLE_VISUAL_VLM = os.environ.get("NCERT_ENABLE_VISUAL_VLM", "0") == "1"
 
 # --------------------------------------------------------------------------
-# Stage B: heading recognition framework integration (M4.2C)
-# --------------------------------------------------------------------------
-# Whether Stage B (modules/stage_b_classify.py) runs each "heading-topic"
-# candidate through the modules/heading_recognizers framework (M4.2A
-# framework + M4.2B generic recognizers) to attach recognition metadata
-# (recognizer name, heading classification, confidence, diagnostics) onto
-# the Block. Default on. This never changes block_type or block.confidence
-# for a heading (Stage A's own TopicRecord detection stays authoritative
-# for "is this a heading" -- see stage_a_geometry.py's own docstring on
-# `_topic_heading_blocks`); it only controls whether the *additional*
-# sub-classification metadata is attached. An operator can flip this off
-# (e.g. while diagnosing an unexpected recognizer interaction) without
-# losing heading detection itself, mirroring ENABLE_VISUAL_VLM above.
-ENABLE_HEADING_RECOGNITION = os.environ.get("NCERT_ENABLE_HEADING_RECOGNITION", "1") == "1"
-
-# --------------------------------------------------------------------------
 # Educational Objects Document export (JSON size control)
 # --------------------------------------------------------------------------
 # The full Stage A/B/C block graph is always built and kept in memory for
@@ -198,3 +182,44 @@ SCHEMA_VERSION = "4.0.0"
 # Sanskrit, keyword-less layouts, ...) is complete -- flip to "0" or unset
 # NCERT_TOC_DIAGNOSTICS to silence it without touching detector code.
 TOC_DETECTION_DIAGNOSTICS = os.environ.get("NCERT_TOC_DIAGNOSTICS", "1") == "1"
+
+# --------------------------------------------------------------------------
+# Milestone M4.2C / M4.3C: heading recognition & canonicalization framework
+# toggles
+# --------------------------------------------------------------------------
+# Whether modules/stage_b_classify.py's heading-topic branch runs the
+# modules/heading_recognizers (M4.2A framework + M4.2B/D concrete
+# recognizers) RecognitionPipeline at all. Restored here as the missing
+# default this frozen M4.2C code has depended on since its own
+# introduction (modules/stage_b_classify.py reads config.ENABLE_HEADING_
+# RECOGNITION directly) -- not a new feature, just completing a config
+# default the existing frozen code already requires to run at all.
+# Default enabled -- disabling this only removes the additive
+# `heading_recognition` diagnostic metadata from grouping_meta; Stage A's
+# own "is this a Heading" block_type/confidence determination (unchanged
+# since M4.1) is never affected.
+ENABLE_HEADING_RECOGNITION = os.environ.get("NCERT_ENABLE_HEADING_RECOGNITION", "1") == "1"
+
+# Milestone M4.3C: whether modules/stage_b_classify.py's heading-topic
+# branch, after a successful M4.2 recognition, also runs the
+# modules/heading_canonicalization (M4.3A framework + M4.3B number-system
+# canonicalizers) CanonicalizationPipeline. Same established
+# os.environ-backed toggle convention as every other flag in this file
+# (e.g. ENABLE_VISUAL_VLM above) -- no second configuration mechanism
+# introduced. Default enabled -- disabling this only removes the
+# additive `heading_canonicalization` diagnostic metadata from
+# grouping_meta; it never affects `heading_recognition` metadata,
+# block_type, or confidence.
+ENABLE_HEADING_CANONICALIZATION = os.environ.get("NCERT_ENABLE_HEADING_CANONICALIZATION", "1") == "1"
+
+# Milestone M4.3D: whether the "structural_validator" canonicalizer
+# (modules.heading_canonicalization.structural_validation.StructuralValidator)
+# is enabled within the shared modules/heading_canonicalization registry.
+# Same os.environ-backed toggle convention as every other flag in this file
+# -- no second configuration mechanism introduced. Checked once at
+# modules/stage_b_classify.py import time via the registry's own existing
+# enable()/disable() lifecycle API. Default enabled -- disabling this only
+# stops structural-validation diagnostics/validation_status from being
+# produced; it never affects canonical_number, numbering_system,
+# canonical_type, heading_recognition metadata, block_type, or confidence.
+ENABLE_STRUCTURAL_VALIDATION = os.environ.get("NCERT_ENABLE_STRUCTURAL_VALIDATION", "1") == "1"

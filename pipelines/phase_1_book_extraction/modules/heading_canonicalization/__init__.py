@@ -56,6 +56,19 @@ Public API:
     CanonicalizationOutcome               — enums.py
     HeadingCanonicalizationError and subclasses
                                            — exceptions.py
+    StructuralValidator,
+    PRECEDING_LEVEL_METADATA_KEY           — structural_validation.py
+
+M4.3D adds `StructuralValidator` (see `structural_validation.py`) —
+validates the *relationships between* already-canonicalized headings
+(number sequence, hierarchy, canonical consistency) and records the
+outcome via `CanonicalHeading.validation_status`/`diagnostics` plus a
+structured `ValidationResult` under
+`metadata["structural_validation"]`. It never rewrites recognition or
+canonicalization output, only the validation placeholders M4.3A
+already defined for exactly this purpose. Registered into
+`default_registry` below, one more `register(...)` call, same
+convention as M4.3B.
 """
 from modules.heading_canonicalization.base import (
     CanonicalizationContext,
@@ -105,6 +118,10 @@ from modules.heading_canonicalization.registry import (
     register,
     unregister,
 )
+from modules.heading_canonicalization.structural_validation import (
+    PRECEDING_LEVEL_METADATA_KEY,
+    StructuralValidator,
+)
 from modules.heading_canonicalization.validation import (
     SUCCESS,
     ValidationDiagnostic,
@@ -126,6 +143,14 @@ register(NumberingSystemDetector())
 register(RomanNumeralCanonicalizer())
 register(ArabicNumeralCanonicalizer())
 register(DevanagariNumeralCanonicalizer())
+
+# -- M4.3D: register the structural validator ---------------------
+#
+# Same one-line registration convention as M4.3B above. `default_priority`
+# (200) already guarantees `StructuralValidator` runs after every M4.3B
+# canonicalizer regardless of registration order, so it always sees each
+# heading's final canonical_number/numbering_system/canonical_type.
+register(StructuralValidator())
 
 __all__ = [
     # models
@@ -159,6 +184,9 @@ __all__ = [
     "RomanNumeralCanonicalizer",
     "ArabicNumeralCanonicalizer",
     "DevanagariNumeralCanonicalizer",
+    # M4.3D structural validation
+    "StructuralValidator",
+    "PRECEDING_LEVEL_METADATA_KEY",
     # enums
     "CanonicalHeadingType",
     "NumberingSystem",

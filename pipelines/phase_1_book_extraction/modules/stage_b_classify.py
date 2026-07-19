@@ -21,6 +21,26 @@ M4.1C improvements:
   - Duplicate classification suppression
   - Improved parent/child block-type propagation
   - Enhanced metadata propagation from Stage A quality passes
+
+M4.2C: heading-topic blocks are additionally run through the shared
+modules/heading_recognizers RecognitionPipeline; a winning match is
+recorded as `grouping_meta["heading_recognition"]` (recognizer name,
+classification, confidence, level, number, diagnostics). Purely additive
+-- `block_type`/`confidence` for heading-topic blocks are unchanged from
+M4.1. Configurable via config.ENABLE_HEADING_RECOGNITION.
+
+M4.3C: immediately after a successful M4.2 recognition, that same
+heading is run through the shared modules/heading_canonicalization
+CanonicalizationPipeline (M4.3A framework + M4.3B number-system
+canonicalizers); the result is recorded as a second, new
+`grouping_meta["heading_canonicalization"]` key (canonical type, canonical
+number, numbering system, validation status, diagnostics) alongside --
+never replacing -- the M4.2C `heading_recognition` metadata. Also purely
+additive; also never touches `block_type`/`confidence`. Configurable via
+config.ENABLE_HEADING_CANONICALIZATION. A canonicalization failure is
+isolated exactly like a recognition failure: recognition metadata (and
+`block_type`/`confidence`) remain intact, and the failure is only ever
+logged/diagnosed, never propagated.
 """
 import re
 import logging
@@ -31,6 +51,11 @@ from modules.stage_a_geometry import Block
 from modules.heading_recognizers import RecognitionPipeline, default_registry
 from modules.heading_recognizers.base import RecognitionContext, RecognitionResult
 from modules.heading_recognizers.exceptions import HeadingRecognitionError
+from modules.heading_canonicalization import CanonicalHeading, CanonicalizationPipeline
+from modules.heading_canonicalization import default_registry as canonicalization_default_registry
+from modules.heading_canonicalization.base import CanonicalizationContext
+from modules.heading_canonicalization.exceptions import HeadingCanonicalizationError
+from modules.heading_canonicalization.structural_validation import PRECEDING_LEVEL_METADATA_KEY
 
 logger = logging.getLogger("ncert_pipeline.stage_b")
 
@@ -44,6 +69,31 @@ logger = logging.getLogger("ncert_pipeline.stage_b")
 # and how they're prioritized/thresholded (configuration requirement: this
 # file introduces no new hard-coded thresholds of its own).
 _HEADING_RECOGNITION_PIPELINE = RecognitionPipeline(default_registry)
+
+# M4.3C: integration point for modules/heading_canonicalization (M4.3A
+# framework + M4.3B number-system canonicalizers) into the production
+# heading extraction flow, one stage downstream of
+# _HEADING_RECOGNITION_PIPELINE above. Built once over the framework's own
+# shared canonicalization_default_registry/default_config, and reused for
+# every recognized heading in this process, for exactly the same reasons
+# _HEADING_RECOGNITION_PIPELINE is a module-level singleton: avoid
+# rebuilding the registry/canonicalizer set per heading (performance), and
+# leave the framework's own registry/config as the single source of truth
+# for which canonicalizers run (this file introduces no new hard-coded
+# canonicalization logic or a second registry of its own).
+_HEADING_CANONICALIZATION_PIPELINE = CanonicalizationPipeline(canonicalization_default_registry)
+
+# M4.3D: whether the shared canonicalization registry's "structural_validator"
+# canonicalizer (modules.heading_canonicalization.structural_validation.
+# StructuralValidator) is enabled, checked once at import time -- exactly
+# like every other module-level singleton above, and using the registry's
+# own existing enable()/disable() lifecycle API (config.py requirement #6:
+# "do not introduce a new configuration mechanism"). Disabling this only
+# stops that one canonicalizer from running -- NumberingSystemDetector and
+# the numeral canonicalizers (M4.3B) are unaffected either way, since
+# structural validation runs strictly after them in the same pipeline.
+if not config.ENABLE_STRUCTURAL_VALIDATION:
+    canonicalization_default_registry.disable("structural_validator")
 
 # Possible block types, verbatim from the frozen architecture spec.
 BLOCK_TYPES = [
@@ -248,10 +298,17 @@ def _heading_recognition_text(meta: Dict) -> str:
     return (meta.get("title") or "").strip()
 
 
-def _recognize_heading(block: Block, preceding_heading_level: Optional[int]) -> Optional[RecognitionResult]:
+def _recognize_heading(
+    block: Block, preceding_heading_level: Optional[int]
+) -> Optional[Tuple[RecognitionContext, RecognitionResult]]:
     """Runs the shared M4.2A/B RecognitionPipeline against one heading-topic
-    Block. Returns the winning RecognitionResult, or None when nothing
-    matched (or the framework is disabled via config). Never raises --
+    Block. Returns the (RecognitionContext, winning RecognitionResult) pair
+    on a match, or None when nothing matched (or the framework is disabled
+    via config) -- the context is returned alongside the result (M4.3C)
+    purely so a subsequent canonicalization step can reuse the exact same
+    RecognitionContext.text that was actually recognized, rather than
+    recomputing `_heading_recognition_text(meta)` a second time (M4.3C
+    performance requirement: avoid redundant conversions). Never raises --
     RecognitionPipeline.run() already turns an individual recognizer's
     exception into a FailureResult internally (HeadingRecognizer.
     safe_recognize()), and this wraps the run() call itself in the
@@ -282,7 +339,9 @@ def _recognize_heading(block: Block, preceding_heading_level: Optional[int]) -> 
             meta.get("topic_id"), block.page,
         )
         return None
-    return result.winner
+    if result.winner is None:
+        return None
+    return context, result.winner
 
 
 def _attach_heading_recognition_metadata(block: Block, result: RecognitionResult) -> None:
@@ -301,8 +360,99 @@ def _attach_heading_recognition_metadata(block: Block, result: RecognitionResult
     }
 
 
+# ---------------------------------------------------------------------------
+# M4.3C: heading canonicalization framework integration
+# ---------------------------------------------------------------------------
+#
+# One stage further downstream of M4.2C's own integration immediately
+# above: once a heading-topic Block has a winning M4.2 RecognitionResult,
+# M4.3 (M4.3A framework + M4.3B number-system canonicalizers) exists to
+# answer the next question -- what is this heading's stable, canonical
+# numbering, independent of whether it was written "III", "3", or "३".
+# Exactly like M4.2C, this is additive: it never changes block_type,
+# confidence, or the `heading_recognition` metadata M4.2C already attaches
+# (M4.3C requirement #2, Preserve Existing Behaviour) -- it only attaches a
+# second, new `heading_canonicalization` metadata key alongside it.
+
+
+def _canonicalize_heading(
+    context: RecognitionContext,
+    result: RecognitionResult,
+    *,
+    preceding_canonical_number: Optional[str] = None,
+    preceding_numbering_system: Optional[str] = None,
+    preceding_canonical_level: Optional[int] = None,
+) -> Optional[CanonicalHeading]:
+    """Runs the shared M4.3A/B CanonicalizationPipeline against one winning
+    M4.2 RecognitionResult (and the RecognitionContext that produced it),
+    via the framework's own from_recognition() adapter
+    (modules.heading_canonicalization.models.CanonicalHeading.
+    from_recognition). Returns the resulting CanonicalHeading, or None
+    when canonicalization is disabled via config, or when
+    from_recognition()/the pipeline run cannot proceed at all. Never
+    raises -- CanonicalizationPipeline.run() already turns an individual
+    canonicalizer's exception into a FAILED AttemptRecord internally
+    (HeadingCanonicalizer.safe_canonicalize()), and this wraps the
+    from_recognition() + run() calls in the framework's own exception
+    hierarchy as a second line of defense, so a canonicalization problem
+    can never abort Stage B / the extraction pipeline (M4.3C error-
+    isolation requirement) -- the `heading_recognition` metadata
+    `_attach_heading_recognition_metadata` already attached is completely
+    unaffected either way, since canonicalization only ever runs after
+    that metadata has already been attached (see classify() below)."""
+    if not config.ENABLE_HEADING_CANONICALIZATION:
+        return None
+
+    # M4.3D: pass the immediately preceding heading's own canonicalization
+    # state along -- CanonicalizationContext.preceding_canonical_number /
+    # preceding_numbering_system are M4.3A framework fields reserved for
+    # exactly this ("lets a future canonicalizer ... reason about numbering
+    # continuity"); preceding level has no dedicated field (that dataclass's
+    # field set is frozen), so it travels in the existing, explicitly opaque
+    # `metadata` mapping instead -- see structural_validation.
+    # PRECEDING_LEVEL_METADATA_KEY. None of this affects M4.3B's own
+    # canonicalizers, which never read these fields.
+    canonicalization_context = CanonicalizationContext(
+        preceding_canonical_number=preceding_canonical_number,
+        preceding_numbering_system=preceding_numbering_system,
+        metadata={PRECEDING_LEVEL_METADATA_KEY: preceding_canonical_level},
+    )
+
+    try:
+        heading = CanonicalHeading.from_recognition(context, result)
+        pipeline_result = _HEADING_CANONICALIZATION_PIPELINE.run(heading, canonicalization_context)
+    except HeadingCanonicalizationError:
+        logger.exception(
+            "Heading canonicalization pipeline failed for recognized heading "
+            "%r (classification=%s) -- keeping M4.2 recognition metadata, no "
+            "canonicalization metadata attached.",
+            context.text, result.classification.value,
+        )
+        return None
+    return pipeline_result.output_heading
+
+
+def _attach_heading_canonicalization_metadata(block: Block, heading: CanonicalHeading) -> None:
+    """Records the canonicalization pipeline's output on the block for
+    downstream consumers, as a second metadata key alongside (never
+    replacing or altering) the `heading_recognition` metadata
+    `_attach_heading_recognition_metadata` already attached -- reuses the
+    framework's own immutable CanonicalHeading fields rather than
+    inventing a parallel shape."""
+    block.grouping_meta["heading_canonicalization"] = {
+        "canonical_type": heading.canonical_type.value if heading.canonical_type is not None else None,
+        "canonical_number": heading.canonical_number,
+        "numbering_system": heading.numbering_system.value,
+        "validation_status": heading.validation_status.value,
+        "diagnostics": heading.diagnostics,
+    }
+
+
 def classify(block: Block, preceding_text: str = "", in_example: bool = False,
-             preceding_heading_level: Optional[int] = None) -> Tuple[str, float]:
+             preceding_heading_level: Optional[int] = None,
+             preceding_canonical_number: Optional[str] = None,
+             preceding_numbering_system: Optional[str] = None,
+             preceding_canonical_level: Optional[int] = None) -> Tuple[str, float]:
     """Pure deterministic classification."""
     anchor = (block.grouping_meta or {}).get("anchor", "")
 
@@ -321,9 +471,23 @@ def classify(block: Block, preceding_text: str = "", in_example: bool = False,
         # returned here (Stage A's TopicRecord detection remains
         # authoritative for "is this a Heading" -- see module docstring
         # above), so this is additive and cannot regress existing callers.
-        winner = _recognize_heading(block, preceding_heading_level)
-        if winner is not None:
+        recognition = _recognize_heading(block, preceding_heading_level)
+        if recognition is not None:
+            recognition_context, winner = recognition
             _attach_heading_recognition_metadata(block, winner)
+            # M4.3C: run the canonicalization framework immediately after a
+            # successful recognition, over that same (context, winner) pair
+            # -- purely additive, exactly like the recognition step above:
+            # block_type/confidence are already decided by this point and
+            # are never touched again.
+            canonical_heading = _canonicalize_heading(
+                recognition_context, winner,
+                preceding_canonical_number=preceding_canonical_number,
+                preceding_numbering_system=preceding_numbering_system,
+                preceding_canonical_level=preceding_canonical_level,
+            )
+            if canonical_heading is not None:
+                _attach_heading_canonicalization_metadata(block, canonical_heading)
         return "Heading", 1.0
     if anchor == "definition-candidate":
         meta = block.grouping_meta or {}
@@ -452,9 +616,27 @@ def classify_blocks(blocks: List[Block]) -> List[Block]:
         # it, without Stage B trusting an unverified recognizer level for its
         # own bookkeeping.
         preceding_heading_level: Optional[int] = None
+        # M4.3D: the most recently canonicalized heading's own
+        # canonical_number/numbering_system/level (from the
+        # `heading_canonicalization` metadata M4.3C already attaches below),
+        # fed to modules.heading_canonicalization as
+        # CanonicalizationContext.preceding_canonical_number/
+        # preceding_numbering_system and the structural_validation.
+        # PRECEDING_LEVEL_METADATA_KEY metadata entry, so StructuralValidator
+        # can reason about numbering/hierarchy continuity across headings on
+        # the same page -- same "reset per page" scoping
+        # `preceding_heading_level` above already uses, for consistency.
+        preceding_canonical_number: Optional[str] = None
+        preceding_numbering_system: Optional[str] = None
+        preceding_canonical_level: Optional[int] = None
         for b in page_blocks:
-            block_type, confidence = classify(b, preceding_text=prev_text, in_example=in_example,
-                                                preceding_heading_level=preceding_heading_level)
+            block_type, confidence = classify(
+                b, preceding_text=prev_text, in_example=in_example,
+                preceding_heading_level=preceding_heading_level,
+                preceding_canonical_number=preceding_canonical_number,
+                preceding_numbering_system=preceding_numbering_system,
+                preceding_canonical_level=preceding_canonical_level,
+            )
             b.block_type = block_type
             b.confidence = confidence
             prev_text = " ".join(l.text for l in b.lines)[:200]
@@ -471,6 +653,24 @@ def classify_blocks(blocks: List[Block]) -> List[Block]:
                 level = (b.grouping_meta or {}).get("level")
                 if isinstance(level, int):
                     preceding_heading_level = level
+
+                canonical_meta = (b.grouping_meta or {}).get("heading_canonicalization")
+                if canonical_meta is not None:
+                    if canonical_meta.get("canonical_number") is not None:
+                        preceding_canonical_number = canonical_meta["canonical_number"]
+                        preceding_numbering_system = canonical_meta["numbering_system"]
+                    # M4.3D: deliberately the recognizer's OWN level
+                    # (heading_recognition["level"], == this same heading's
+                    # CanonicalHeading.level) rather than Stage A's
+                    # grouping_meta["level"] used for `preceding_heading_level`
+                    # above -- StructuralValidator compares
+                    # `CanonicalHeading.level` values on both sides of a
+                    # transition, so the preceding value fed into that same
+                    # comparison must come from that same field, not a
+                    # different (Stage A) notion of level.
+                    recognized_level = (b.grouping_meta.get("heading_recognition") or {}).get("level")
+                    if isinstance(recognized_level, int):
+                        preceding_canonical_level = recognized_level
 
     # M4.1C: Post-classification quality passes
     _propagate_parent_child_types(blocks)

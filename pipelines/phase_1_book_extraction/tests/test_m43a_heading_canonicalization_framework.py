@@ -771,6 +771,9 @@ class PublicApiTest(unittest.TestCase):
             "CanonicalizerConfigurationError", "CanonicalizerLookupError",
             "CanonicalizerExecutionError", "CanonicalizationPipelineError",
             "CanonicalHeadingValidationError",
+            # M4.3D: the structural validator, registered into
+            # default_registry (see test_m43d_structural_validation.py).
+            "StructuralValidator", "PRECEDING_LEVEL_METADATA_KEY",
         }
         for name in expected:
             self.assertTrue(hasattr(hc, name), f"missing public export: {name}")
@@ -788,6 +791,11 @@ class PublicApiTest(unittest.TestCase):
         # *that* contract instead of the now-superseded "starts empty"
         # one — see test_m43b_number_system_canonicalization.py for
         # full coverage of the canonicalizers themselves.
+        #
+        # M4.3D (Structural Validation) adds exactly one more entry --
+        # "structural_validator" -- to this same registry, same
+        # convention, same one-line register() call; see
+        # test_m43d_structural_validation.py for its own coverage.
         import modules.heading_canonicalization as hc
         names = set(hc.default_registry.registered_names())
         self.assertEqual(
@@ -797,6 +805,7 @@ class PublicApiTest(unittest.TestCase):
                 "roman_numeral_canonicalizer",
                 "arabic_numeral_canonicalizer",
                 "devanagari_numeral_canonicalizer",
+                "structural_validator",
             },
         )
 
