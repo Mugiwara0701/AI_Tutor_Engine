@@ -282,3 +282,37 @@ Structure Tree generation. See `tests/test_m43d_structural_validation.py`
 for full coverage (number sequence, hierarchy, canonical consistency,
 failure handling, determinism, and production-wiring integration
 tests).
+
+## M4.3E — Validation, Hardening & Freeze
+
+M4.3E introduced no new functionality (recognition, canonicalization,
+and structural validation remain exactly as M4.2/M4.3A-D left them).
+It stress-tested the complete heading subsystem — this package,
+`modules.heading_recognizers`, and their production wiring in
+`modules/stage_b_classify.py` — against the edge cases every layer's
+own docstrings already promised to handle (empty/whitespace input,
+malformed numbering, mixed/unsupported numbering systems, malformed
+Roman/Devanagari numerals, duplicate headings, invalid hierarchy,
+missing canonical values, unexpected metadata, malformed context,
+very long headings, Unicode edge cases), confirmed error isolation,
+determinism, and singleton/registry reuse end-to-end, and re-verified
+the M4.2/M4.3A-D public API freeze. See
+`tests/test_m43e_validation_hardening_freeze.py` for the full suite.
+
+**One genuine defect was found and fixed**, in
+`modules/stage_b_classify.py` (not in this package) —
+`_heading_recognition_text` called `.strip()` unconditionally on a
+heading block's `numbering`/`title` metadata after `or ""`, which
+raised `AttributeError` for any other truthy non-string value (e.g. a
+stray int/list from malformed upstream metadata), crashing the entire
+per-page classification loop for every block after the malformed one.
+Fixed by coercing any non-`str` value to absent (`""`) instead of
+calling `.strip()` on it — well-formed `str`/`None` input is
+completely unaffected. No defect was found in this package
+(`heading_canonicalization`) or in `heading_recognizers` itself; both
+were already defensive at every boundary probed.
+
+**As of M4.3E, the heading subsystem (M4.2 + M4.3A-E) is considered
+feature-complete, hardened, and frozen.** Future work builds on top
+of it (Document Structure Tree integration, educational object
+extraction, etc.) rather than modifying it further.

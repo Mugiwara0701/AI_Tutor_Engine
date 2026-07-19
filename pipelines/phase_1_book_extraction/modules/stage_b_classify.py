@@ -292,10 +292,23 @@ def _heading_recognition_text(meta: Dict) -> str:
     is exactly the input ChapterTitleRecognizer (and, for a title that
     itself starts with a keyword, ChapterNumberRecognizer) is built for.
     """
-    numbering = (meta.get("numbering") or "").strip()
+    # M4.3E hardening fix: grouping_meta is produced by an upstream stage
+    # this framework doesn't control, so `numbering`/`title` are only
+    # EXPECTED to be `Optional[str]` -- not guaranteed. Calling `.strip()`
+    # unconditionally after `or ""` still raised AttributeError for any
+    # other truthy non-string value (e.g. a stray int/list from malformed
+    # metadata), which would crash this whole call and everything after it
+    # in classify_blocks()'s per-page loop -- exactly the "unexpected
+    # metadata"/"malformed context" case this framework's own contract
+    # ("never raises") already promised to handle. Coercing a non-string
+    # value to "" (i.e. treating it as absent) rather than raising keeps
+    # that promise; well-formed str/None input is completely unaffected.
+    numbering = meta.get("numbering")
+    numbering = numbering.strip() if isinstance(numbering, str) else ""
     if numbering:
         return numbering
-    return (meta.get("title") or "").strip()
+    title = meta.get("title")
+    return title.strip() if isinstance(title, str) else ""
 
 
 def _recognize_heading(
