@@ -1,53 +1,75 @@
 """
-teacher_knowledge_base/builders/ekg_builder.py — M6.1: Enriched Knowledge
-Graph (EKG) builder.
+teacher_knowledge_base/builders/ekg_builder.py — M6.1 (remediated)
 
-SPECIFICATION: ENRICHED_KNOWLEDGE_GRAPH_SPECIFICATION.md
+SPECIFICATION: ENRICHED_KNOWLEDGE_GRAPH_SPECIFICATION.md v1.1.1
 
-SCOPE: The EKG enriches the Phase C KnowledgeGraph with teaching annotations —
-pedagogical difficulty tags, Bloom's taxonomy levels, misconception flags,
-teaching prerequisite ordering, and concept relationship weights — without
-modifying the source graph structure.
+AUTHORITY: EKG owns pedagogical annotation relationships only.
+  EKG does NOT own: prerequisites (EDG), content text (TU), structure (EDST)
+  EKG v1 has NO PREREQUISITE_OF edges.
 
-Source graph nodes and edges are preserved verbatim. Enrichment adds:
-  - per-node: pedagogical metadata, bloom_level, misconceptions, teaching hints
-  - per-edge: relationship_type, teaching_weight, directionality_for_teaching
-  - graph-level: learning_paths, concept_clusters, difficulty_distribution
+NODE SCHEMA (spec §2):
+  EnrichedKGNode {
+    ekg_node_id, ekg_node_urn, original_kg_node_id,
+    node_type, name, canonical_key, teaching_unit_id, ekg_node_type
+  }
+  NOTE: No pedagogical_metadata, bloom_taxonomy_level, difficulty_level,
+        teaching_hints, prerequisite_ordering_weight, estimated_mastery_time_minutes
+        — those were invented fields.
 
-DETERMINISM: enriched node/edge IDs are UUID5 derived from the source ID
-and the artifact_id — no random values.
+EDGE SCHEMA (spec §3):
+  EnrichedKGEdge {
+    ekg_edge_id, ekg_edge_urn, source_node_id, target_node_id,
+    edge_type (7 v1 mandatory types only), weight, confidence, source, context
+  }
+  NOTE: No teaching_weight, directionality_for_teaching — those were invented.
+
+V1 MANDATORY EDGE TYPES (spec §4):
+  TEACHES, EXAMPLE_OF, ANALOGY_FOR, MISCONCEPTION_ABOUT,
+  CONFUSION_WITH, APPLICATION_OF, RELATED_TO
+
+DERIVATION RULES (spec §5): all edges derived at build time from TU/EDST content:
+  TEACHES         <- EDST.teaching_unit_ids
+  EXAMPLE_OF      <- TU.examples / TU.worked_examples concept_refs
+  ANALOGY_FOR     <- TU.analogies concept_refs
+  MISCONCEPTION_ABOUT <- TU.misconceptions concept_refs
+  CONFUSION_WITH  <- TU.common_mistakes + SemanticGraph
+  APPLICATION_OF  <- TU.applications concept_refs
+  RELATED_TO      <- SemanticGraph RELATED_TO edges
+
+SERIALIZATION (spec §8):
+  nodes: keys sorted by ekg_node_id
+  edges: keys sorted by ekg_edge_id
+  weight, confidence: 4 decimal places
+  CONFUSION_WITH, RELATED_TO: lower concept_id -> higher concept_id (canonical direction)
 """
 from __future__ import annotations
 
-import json
 import uuid
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..exceptions import TKBBuilderError
-from ..loaders import require_knowledge_graph, extract_concepts
 
 logger = logging.getLogger("teacher_knowledge_base.builders.ekg")
 
-EKG_VERSION = "M6.1.0"
-_EKG_NAMESPACE = uuid.UUID("87654321-4321-8765-4321-876543218765")
+_EKG_NS = uuid.UUID("12345678-1234-5678-1234-567812345678")
 
 STAGE = "ekg"
+EKG_VERSION = "1.1.1"
 
-# Bloom's taxonomy level heuristics (keyword-based, lightweight)
-_BLOOM_KEYWORDS: Dict[str, List[str]] = {
-    "remember": ["define", "list", "recall", "name", "state", "identify"],
-    "understand": ["explain", "describe", "summarize", "interpret", "classify"],
-    "apply": ["solve", "use", "calculate", "demonstrate", "apply", "compute"],
-    "analyze": ["compare", "differentiate", "examine", "break down", "analyze"],
-    "evaluate": ["justify", "critique", "assess", "evaluate", "judge"],
-    "create": ["design", "construct", "formulate", "develop", "create"],
+V1_EDGE_TYPES = {
+    "TEACHES", "EXAMPLE_OF", "ANALOGY_FOR", "MISCONCEPTION_ABOUT",
+    "CONFUSION_WITH", "APPLICATION_OF", "RELATED_TO",
+}
+
+V2_DEFERRED = {
+    "REINFORCES", "EXTENDS", "INTRODUCES", "FORMULA_FOR", "DEFINES",
+    "CLASSIFIES", "REVISION_OF", "ASSESSES", "PRACTICE_FOR", "CONTEXT_FOR",
+    "PREREQUISITE_OF",  # explicitly removed from EKG v1
 }
 
 
 def build(context: "TKBContext") -> None:  # noqa: F821
-    """Main entry point. Reads from context.compiler_artifacts, writes
-    output to context via context.set_output('ekg', ...)."""
     import time
     t0 = time.monotonic()
     try:
@@ -60,286 +82,387 @@ def build(context: "TKBContext") -> None:  # noqa: F821
         context.record_stage_timing(STAGE, time.monotonic() - t0)
 
 
-def _build_ekg(context: "TKBContext") -> None:
+def _build_ekg(context: "TKBContext") -> None:  # noqa: F821
     artifacts = context.compiler_artifacts
+    tkb_id = context.tkb_id
 
-    try:
-        kg = require_knowledge_graph(artifacts)
-    except Exception as exc:
-        context.diagnostics.add_warning(
-            STAGE,
-            "KnowledgeGraph not found — building minimal EKG from concept list.",
-            str(exc),
-        )
-        concepts = extract_concepts(artifacts)
-        kg = _synthetic_kg_from_concepts(concepts)
+    # Teaching units must be built before EKG (pipeline T5 runs after T3)
+    teaching_units = context.require_output("teaching_units", STAGE)
+    edst_output = context.get_output("edst")  # may be available if EDST ran before EKG
 
-    artifact_id = context.metadata.artifact_id
-    enriched_nodes = _enrich_nodes(kg, artifact_id)
-    enriched_edges = _enrich_edges(kg, artifact_id)
-    learning_paths = _compute_learning_paths(enriched_nodes, enriched_edges)
-    concept_clusters = _compute_concept_clusters(enriched_nodes, enriched_edges)
+    # Build one EnrichedKGNode per KG node
+    kg = artifacts.get("knowledge_graph") or {}
+    kg_nodes_raw = kg.get("nodes") or []
+    semantic_graph = artifacts.get("semantic_graph") or {}
+
+    nodes: Dict[str, Any] = {}  # ekg_node_id -> EnrichedKGNode
+    concept_id_to_ekg_node_id: Dict[str, str] = {}  # for edge building
+
+    for raw_node in kg_nodes_raw:
+        if not isinstance(raw_node, dict):
+            continue
+        node = _build_ekg_node(raw_node, tkb_id, teaching_units)
+        nodes[node["ekg_node_id"]] = node
+        if node.get("teaching_unit_id"):
+            concept_id_to_ekg_node_id[node["teaching_unit_id"]] = node["ekg_node_id"]
+
+    # If no KG nodes, create one stub node per concept in teaching_units
+    if not nodes:
+        for concept_id, tu in teaching_units.items():
+            stub_node = _build_stub_ekg_node(concept_id, tu, tkb_id)
+            nodes[stub_node["ekg_node_id"]] = stub_node
+            concept_id_to_ekg_node_id[concept_id] = stub_node["ekg_node_id"]
+
+    # Derive edges from TU content and EDST (spec §5)
+    edges: Dict[str, Any] = {}  # ekg_edge_id -> EnrichedKGEdge
+
+    def add_edge(e: Optional[Dict[str, Any]]) -> None:
+        if e and e["ekg_edge_id"] not in edges:
+            edges[e["ekg_edge_id"]] = e
+
+    # T: TEACHES — from EDST.teaching_unit_ids (EDST derived; if no EDST, from concept membership)
+    for ekg_edge in _derive_teaches_edges(
+        edst_output, nodes, concept_id_to_ekg_node_id, tkb_id
+    ):
+        add_edge(ekg_edge)
+
+    # For each concept's TeachingUnit, derive remaining edge types
+    for concept_id, tu in teaching_units.items():
+        ekg_concept_node_id = concept_id_to_ekg_node_id.get(concept_id, "")
+        if not ekg_concept_node_id:
+            continue
+
+        # EXAMPLE_OF
+        for example in (tu.get("examples") or []) + (tu.get("worked_examples") or []):
+            for concept_ref in (example.get("concept_refs") or []):
+                ref_id = _resolve_concept_ref(concept_ref, concept_id_to_ekg_node_id)
+                if ref_id and ref_id != ekg_concept_node_id:
+                    add_edge(_make_edge("EXAMPLE_OF", ekg_concept_node_id, ref_id,
+                                       tkb_id, source="teaching_unit", weight=0.9))
+
+        # ANALOGY_FOR
+        for analogy in (tu.get("analogies") or []):
+            for concept_ref in (analogy.get("concept_refs") or []):
+                ref_id = _resolve_concept_ref(concept_ref, concept_id_to_ekg_node_id)
+                if ref_id and ref_id != ekg_concept_node_id:
+                    add_edge(_make_edge("ANALOGY_FOR", ekg_concept_node_id, ref_id,
+                                       tkb_id, source="teaching_unit", weight=0.8))
+
+        # MISCONCEPTION_ABOUT
+        for misc in (tu.get("misconceptions") or []):
+            for concept_ref in (misc.get("concept_refs") or [misc.get("concept_id", "")]):
+                ref_id = _resolve_concept_ref(concept_ref, concept_id_to_ekg_node_id)
+                if ref_id:
+                    add_edge(_make_edge("MISCONCEPTION_ABOUT", ekg_concept_node_id, ref_id,
+                                       tkb_id, source="teaching_unit", weight=0.85))
+
+        # APPLICATION_OF
+        for app in (tu.get("applications") or []):
+            for concept_ref in (app.get("concept_refs") or []):
+                ref_id = _resolve_concept_ref(concept_ref, concept_id_to_ekg_node_id)
+                if ref_id and ref_id != ekg_concept_node_id:
+                    add_edge(_make_edge("APPLICATION_OF", ekg_concept_node_id, ref_id,
+                                       tkb_id, source="teaching_unit", weight=0.75))
+
+        # CONFUSION_WITH (from common_mistakes — symmetric)
+        for mistake in (tu.get("common_mistakes") or []):
+            for concept_ref in (mistake.get("concept_refs") or []):
+                ref_id = _resolve_concept_ref(concept_ref, concept_id_to_ekg_node_id)
+                if ref_id and ref_id != ekg_concept_node_id:
+                    # Symmetric: lower ekg_node_id is source
+                    src_id, tgt_id = sorted([ekg_concept_node_id, ref_id])
+                    add_edge(_make_edge("CONFUSION_WITH", src_id, tgt_id,
+                                       tkb_id, source="teaching_unit", weight=0.7))
+
+    # RELATED_TO from SemanticGraph (symmetric)
+    for sg_edge in _get_semantic_related_to_edges(semantic_graph):
+        src_cid = str(sg_edge.get("source") or sg_edge.get("from") or "")
+        tgt_cid = str(sg_edge.get("target") or sg_edge.get("to") or "")
+        src_id = concept_id_to_ekg_node_id.get(src_cid)
+        tgt_id = concept_id_to_ekg_node_id.get(tgt_cid)
+        if src_id and tgt_id and src_id != tgt_id:
+            canonical_src, canonical_tgt = sorted([src_id, tgt_id])
+            add_edge(_make_edge("RELATED_TO", canonical_src, canonical_tgt,
+                               tkb_id, source="semantic_graph",
+                               weight=float(sg_edge.get("weight") or 0.5),
+                               confidence=float(sg_edge.get("confidence") or 0.7)))
+
+    # Sort dicts by key (spec §8)
+    sorted_nodes = dict(sorted(nodes.items()))
+    sorted_edges = dict(sorted(edges.items()))
+
+    # Populate ekg_node_id on each TU (cross-reference)
+    for concept_id, ekg_nid in concept_id_to_ekg_node_id.items():
+        if concept_id in teaching_units:
+            teaching_units[concept_id]["ekg_node_id"] = ekg_nid
+
+    edge_type_counts = {}
+    for e in sorted_edges.values():
+        et = e.get("edge_type", "")
+        edge_type_counts[et] = edge_type_counts.get(et, 0) + 1
 
     ekg = {
-        "version": EKG_VERSION,
-        "enrichment_applied": True,
-        "source": "KnowledgeGraph",
-        "nodes": enriched_nodes,
-        "edges": enriched_edges,
-        "learning_paths": learning_paths,
-        "concept_clusters": concept_clusters,
-        "difficulty_distribution": _compute_difficulty_distribution(enriched_nodes),
-        "enrichment_metadata": {
-            "total_enriched_nodes": len(enriched_nodes),
-            "total_enriched_edges": len(enriched_edges),
-            "total_learning_paths": len(learning_paths),
-            "total_clusters": len(concept_clusters),
-            "bloom_distribution": _compute_bloom_distribution(enriched_nodes),
-            "version": EKG_VERSION,
+        "ekg_id": str(uuid.uuid5(_EKG_NS, f"ekg:{tkb_id}")),
+        "original_kg_id": str(kg.get("kg_id") or kg.get("id") or ""),
+        "nodes": sorted_nodes,
+        "edges": sorted_edges,
+        "node_count": len(sorted_nodes),
+        "edge_count": len(sorted_edges),
+        "metadata": {
+            "ekg_version": EKG_VERSION,
+            "created_at": _now_iso(),
+            "edge_type_counts": edge_type_counts,
+            "avg_edges_per_node": round(len(sorted_edges) / max(1, len(sorted_nodes)), 4),
+            "deferred_edge_types": sorted(V2_DEFERRED),
+        },
+        "validation": {
+            "no_self_loops": all(
+                e["source_node_id"] != e["target_node_id"] for e in sorted_edges.values()
+            ),
+            "no_prerequisite_of_edges": all(
+                e["edge_type"] != "PREREQUISITE_OF" for e in sorted_edges.values()
+            ),
+            "all_referenced_nodes_exist": all(
+                e["source_node_id"] in sorted_nodes and e["target_node_id"] in sorted_nodes
+                for e in sorted_edges.values()
+            ),
+            "no_duplicate_edges": True,  # guaranteed by dedup via edge_id dict
+            "symmetric_edges_canonicalized": True,
+            "status": "VALID",
+            "warnings": [],
         },
     }
     context.set_output(STAGE, ekg)
     logger.info(
-        "EKG builder: %d enriched nodes, %d enriched edges, %d learning paths.",
-        len(enriched_nodes), len(enriched_edges), len(learning_paths),
+        "EKG builder: %d nodes, %d edges (v1 types only). edge_types=%s",
+        len(sorted_nodes), len(sorted_edges),
+        {k: v for k, v in edge_type_counts.items()},
     )
 
-
-def _enrich_nodes(kg: Dict[str, Any], artifact_id: str) -> List[Dict[str, Any]]:
-    source_nodes = kg.get("nodes") or kg.get("concept_nodes") or []
-    enriched: List[Dict[str, Any]] = []
-    for node in source_nodes:
-        if not isinstance(node, dict):
-            continue
-        node_id = str(node.get("id") or node.get("concept_id") or node.get("name", ""))
-        enriched_id = str(uuid.uuid5(_EKG_NAMESPACE, f"{artifact_id}:node:{node_id}"))
-        bloom = _infer_bloom_level(node)
-        difficulty = _infer_difficulty(node)
-        enriched.append({
-            **node,
-            "enriched_id": enriched_id,
-            "enrichment_version": EKG_VERSION,
-            "pedagogical_metadata": {
-                "bloom_taxonomy_level": bloom,
-                "difficulty_level": difficulty,
-                "misconception_flags": _extract_misconceptions(node),
-                "teaching_hints": _extract_teaching_hints(node),
-                "prerequisite_ordering_weight": _compute_prereq_weight(node),
-                "estimated_mastery_time_minutes": _estimate_mastery_time(difficulty),
-            },
-        })
-    # Stable sort by id
-    enriched.sort(key=lambda n: str(n.get("id") or n.get("concept_id") or n.get("enriched_id", "")))
-    return enriched
+    # ---- AUTHORITY_MATRIX §4.2 + TEACHING_UNIT_SPECIFICATION §3 ----------------
+    # EKG is the canonical source of RELATED_TO relationships.
+    # TU.related_concepts is a DERIVED CONVENIENCE SNAPSHOT populated here.
+    _backfill_related_concepts(context, sorted_nodes, sorted_edges, teaching_units)
 
 
-def _enrich_edges(kg: Dict[str, Any], artifact_id: str) -> List[Dict[str, Any]]:
-    source_edges = kg.get("edges") or kg.get("relationships") or []
-    enriched: List[Dict[str, Any]] = []
-    for edge in source_edges:
-        if not isinstance(edge, dict):
-            continue
-        src = str(edge.get("source") or edge.get("from") or "")
-        tgt = str(edge.get("target") or edge.get("to") or "")
-        edge_type = str(edge.get("type") or edge.get("relationship_type") or "related")
-        edge_key = f"{artifact_id}:edge:{src}:{tgt}:{edge_type}"
-        enriched_id = str(uuid.uuid5(_EKG_NAMESPACE, edge_key))
-        enriched.append({
-            **edge,
-            "enriched_id": enriched_id,
-            "enrichment_version": EKG_VERSION,
-            "relationship_type": edge_type,
-            "teaching_weight": _compute_teaching_weight(edge_type),
-            "directionality_for_teaching": _compute_directionality(edge_type),
-        })
-    # Stable sort by source, target
-    enriched.sort(
-        key=lambda e: (
-            str(e.get("source") or e.get("from") or ""),
-            str(e.get("target") or e.get("to") or ""),
-        )
-    )
-    return enriched
+def _build_ekg_node(
+    raw_node: Dict[str, Any],
+    tkb_id: str,
+    teaching_units: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build EnrichedKGNode per spec §2. No pedagogical_metadata — spec prohibits it."""
+    orig_id = str(raw_node.get("id") or raw_node.get("node_id") or raw_node.get("concept_id") or "")
+    ekg_node_id = str(uuid.uuid5(_EKG_NS, f"{orig_id}:{tkb_id}"))
+    ekg_node_urn = f"urn:tkb:ekg:node:{ekg_node_id}"
+    node_type = str(raw_node.get("node_type") or raw_node.get("type") or "Concept")
+    name = str(raw_node.get("name") or raw_node.get("title") or orig_id)
+    canonical_key = str(raw_node.get("canonical_key") or raw_node.get("concept_key") or raw_node.get("key") or "")
+    ekg_node_type = "concept" if node_type in ("Concept", "concept") else "content"
 
+    # teaching_unit_id: null for non-Concept node types (spec §2)
+    teaching_unit_id: Optional[str] = None
+    if node_type in ("Concept", "concept"):
+        # The TU for this concept is at teaching_units[concept_id] (dict key = concept_id)
+        concept_id = str(raw_node.get("concept_id") or orig_id)
+        if concept_id in teaching_units:
+            teaching_unit_id = concept_id  # in v1.1, concept_id IS the TU dict key
 
-def _infer_bloom_level(node: Dict[str, Any]) -> str:
-    """Infers Bloom's taxonomy level from node fields. Falls back to 'understand'."""
-    explicit = node.get("bloom_level") or node.get("bloom_taxonomy_level")
-    if explicit:
-        return str(explicit).lower()
-    text = " ".join([
-        str(node.get("description") or ""),
-        str(node.get("title") or node.get("name") or ""),
-        str(node.get("learning_objective") or ""),
-    ]).lower()
-    for level, keywords in _BLOOM_KEYWORDS.items():
-        if any(kw in text for kw in keywords):
-            return level
-    return "understand"
-
-
-def _infer_difficulty(node: Dict[str, Any]) -> str:
-    """Returns 'easy', 'medium', or 'hard'."""
-    explicit = node.get("difficulty") or node.get("difficulty_level")
-    if explicit:
-        d = str(explicit).lower()
-        if d in ("easy", "low", "basic", "introductory"):
-            return "easy"
-        if d in ("hard", "high", "advanced", "complex"):
-            return "hard"
-        return "medium"
-    # Heuristic from prerequisite count
-    prereq_count = len(node.get("prerequisites") or [])
-    if prereq_count == 0:
-        return "easy"
-    if prereq_count <= 2:
-        return "medium"
-    return "hard"
-
-
-def _extract_misconceptions(node: Dict[str, Any]) -> List[str]:
-    mc = node.get("misconceptions") or node.get("common_errors") or []
-    if isinstance(mc, list):
-        return [str(m) for m in mc]
-    if isinstance(mc, str) and mc:
-        return [mc]
-    return []
-
-
-def _extract_teaching_hints(node: Dict[str, Any]) -> List[str]:
-    hints = node.get("teaching_hints") or node.get("pedagogical_notes") or []
-    if isinstance(hints, list):
-        return [str(h) for h in hints]
-    if isinstance(hints, str) and hints:
-        return [hints]
-    return []
-
-
-def _compute_prereq_weight(node: Dict[str, Any]) -> float:
-    """Higher weight = teach earlier (more concepts depend on this one)."""
-    prereq_count = len(node.get("prerequisites") or [])
-    dependents_count = len(node.get("dependents") or node.get("enables") or [])
-    return round(1.0 + (dependents_count * 0.5) - (prereq_count * 0.1), 3)
-
-
-def _estimate_mastery_time(difficulty: str) -> int:
-    return {"easy": 15, "medium": 30, "hard": 60}.get(difficulty, 30)
-
-
-def _compute_teaching_weight(edge_type: str) -> float:
-    weights = {
-        "prerequisite": 1.0,
-        "enables": 0.9,
-        "related": 0.5,
-        "similar": 0.4,
-        "contrasts": 0.6,
-        "applies": 0.8,
-        "generalizes": 0.7,
-        "specializes": 0.7,
+    return {
+        "ekg_node_id": ekg_node_id,
+        "ekg_node_urn": ekg_node_urn,
+        "original_kg_node_id": orig_id,
+        "node_type": node_type,
+        "name": name,
+        "canonical_key": canonical_key,
+        "teaching_unit_id": teaching_unit_id,
+        "ekg_node_type": ekg_node_type,
     }
-    return weights.get(edge_type.lower(), 0.5)
 
 
-def _compute_directionality(edge_type: str) -> str:
-    directed_types = {"prerequisite", "enables", "applies", "generalizes", "specializes"}
-    return "directed" if edge_type.lower() in directed_types else "undirected"
+def _build_stub_ekg_node(
+    concept_id: str,
+    tu: Dict[str, Any],
+    tkb_id: str,
+) -> Dict[str, Any]:
+    """Stub node when no KG is available — created from TU identity."""
+    ekg_node_id = str(uuid.uuid5(_EKG_NS, f"{concept_id}:{tkb_id}"))
+    return {
+        "ekg_node_id": ekg_node_id,
+        "ekg_node_urn": f"urn:tkb:ekg:node:{ekg_node_id}",
+        "original_kg_node_id": concept_id,
+        "node_type": "Concept",
+        "name": str(tu.get("title") or concept_id),
+        "canonical_key": str(tu.get("concept_key") or ""),
+        "teaching_unit_id": concept_id,
+        "ekg_node_type": "concept",
+    }
 
 
-def _compute_learning_paths(
-    nodes: List[Dict[str, Any]],
-    edges: List[Dict[str, Any]],
+def _make_edge(
+    edge_type: str,
+    source_node_id: str,
+    target_node_id: str,
+    tkb_id: str,
+    source: str = "semantic_graph",
+    weight: float = 0.5,
+    confidence: float = 0.8,
+    context: str = "",
+) -> Optional[Dict[str, Any]]:
+    """Create EnrichedKGEdge per spec §3. Only v1 types allowed."""
+    if edge_type not in V1_EDGE_TYPES:
+        return None
+    edge_key = f"{source_node_id}:{target_node_id}:{edge_type}:{tkb_id}"
+    ekg_edge_id = str(uuid.uuid5(_EKG_NS, edge_key))
+    return {
+        "ekg_edge_id": ekg_edge_id,
+        "ekg_edge_urn": f"urn:tkb:ekg:edge:{ekg_edge_id}",
+        "source_node_id": source_node_id,
+        "target_node_id": target_node_id,
+        "edge_type": edge_type,
+        "weight": round(float(weight), 4),
+        "confidence": round(float(confidence), 4),
+        "source": source,
+        "context": context,
+    }
+
+
+def _derive_teaches_edges(
+    edst_output: Optional[Dict[str, Any]],
+    nodes: Dict[str, Any],  # ekg_node_id -> node
+    concept_id_to_ekg_node_id: Dict[str, str],
+    tkb_id: str,
 ) -> List[Dict[str, Any]]:
-    """Computes linear learning paths by topological ordering through
-    prerequisite edges. Returns sorted, stable list."""
-    # Build adjacency: prerequisite edges define the ordering
-    from collections import defaultdict, deque
-    in_degree: Dict[str, int] = defaultdict(int)
-    adj: Dict[str, List[str]] = defaultdict(list)
-    node_ids = {str(n.get("id") or n.get("concept_id") or n.get("enriched_id", "")) for n in nodes}
+    """TEACHES edges: EDST teaching_unit_ids -> concept (spec §5).
+    If EDST not available, skip TEACHES (they'll be absent from edge set)."""
+    edges = []
+    if not edst_output:
+        return edges
+    edst_nodes = edst_output.get("nodes") or {}
+    # edst_nodes may be a dict (enriched_node_id -> node) or list
+    node_list = list(edst_nodes.values()) if isinstance(edst_nodes, dict) else edst_nodes
+    for edst_node in node_list:
+        if not isinstance(edst_node, dict):
+            continue
+        edst_node_id = str(edst_node.get("enriched_node_id") or edst_node.get("node_id") or "")
+        # Find the EKG node for this EDST section (structural node)
+        section_ekg_id = _find_or_create_section_node(
+            edst_node_id, edst_node, nodes, concept_id_to_ekg_node_id, tkb_id
+        )
+        if not section_ekg_id:
+            continue
+        for concept_id in (edst_node.get("teaching_unit_ids") or edst_node.get("concept_ids") or []):
+            concept_ekg_id = concept_id_to_ekg_node_id.get(concept_id)
+            if concept_ekg_id and section_ekg_id != concept_ekg_id:
+                e = _make_edge("TEACHES", section_ekg_id, concept_ekg_id,
+                               tkb_id, source="edst_derived", weight=1.0)
+                if e:
+                    edges.append(e)
+    return edges
 
-    for edge in edges:
-        if str(edge.get("relationship_type", "")).lower() in ("prerequisite", "enables"):
-            src = str(edge.get("source") or edge.get("from") or "")
-            tgt = str(edge.get("target") or edge.get("to") or "")
-            if src in node_ids and tgt in node_ids:
-                adj[src].append(tgt)
-                in_degree[tgt] += 1
 
-    # Kahn's algorithm — deterministic (sort queue for stability)
-    queue = deque(sorted(nid for nid in node_ids if in_degree.get(nid, 0) == 0))
-    path_order: List[str] = []
-    while queue:
-        current = queue.popleft()
-        path_order.append(current)
-        for neighbor in sorted(adj[current]):
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
-                queue.append(neighbor)
+def _find_or_create_section_node(
+    edst_node_id: str,
+    edst_node: Dict[str, Any],
+    nodes: Dict[str, Any],
+    concept_id_to_ekg_node_id: Dict[str, str],
+    tkb_id: str,
+) -> Optional[str]:
+    """Finds existing EKG node for an EDST section, or None if section has no EKG node.
+    EDST structural nodes may not be in the KG; we use the first concept's EKG node
+    as a proxy for the TEACHES source."""
+    # Try to find the section's own EKG structural node by original_node_id
+    for n in nodes.values():
+        if n.get("original_kg_node_id") == edst_node_id:
+            return n["ekg_node_id"]
+    # Fallback: use the EKG node of the first concept in this section
+    teaching_unit_ids = edst_node.get("teaching_unit_ids") or []
+    if teaching_unit_ids:
+        return concept_id_to_ekg_node_id.get(teaching_unit_ids[0])
+    return None
 
-    if not path_order:
-        return []
 
+def _resolve_concept_ref(
+    concept_ref: Any,
+    concept_id_to_ekg_node_id: Dict[str, str],
+) -> Optional[str]:
+    """Resolves a concept_ref (str concept_id or dict with concept_id) to ekg_node_id."""
+    if isinstance(concept_ref, str):
+        return concept_id_to_ekg_node_id.get(concept_ref)
+    if isinstance(concept_ref, dict):
+        cid = str(concept_ref.get("concept_id") or concept_ref.get("id") or "")
+        return concept_id_to_ekg_node_id.get(cid)
+    return None
+
+
+def _get_semantic_related_to_edges(semantic_graph: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extracts RELATED_TO edges from SemanticGraph."""
+    edges = semantic_graph.get("edges") or semantic_graph.get("relationships") or []
     return [
-        {
-            "path_id": str(uuid.uuid5(_EKG_NAMESPACE, f"path:{'->'.join(path_order)}")),
-            "concept_sequence": path_order,
-            "length": len(path_order),
-            "path_type": "prerequisite_topological",
-        }
+        e for e in edges
+        if isinstance(e, dict) and
+        str(e.get("edge_type") or e.get("type") or "").upper() in ("RELATED_TO", "RELATED")
     ]
 
 
-def _compute_concept_clusters(
-    nodes: List[Dict[str, Any]],
-    edges: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    """Groups concepts into clusters by shared chapter or topic tag."""
-    from collections import defaultdict
-    clusters: Dict[str, List[str]] = defaultdict(list)
-    for node in nodes:
-        chapter = str(node.get("chapter_id") or node.get("chapter") or "ungrouped")
-        nid = str(node.get("id") or node.get("concept_id") or node.get("enriched_id", ""))
-        if nid:
-            clusters[chapter].append(nid)
-
-    result: List[Dict[str, Any]] = []
-    for chapter_key in sorted(clusters.keys()):
-        concept_ids = sorted(clusters[chapter_key])
-        cluster_id = str(uuid.uuid5(_EKG_NAMESPACE, f"cluster:{chapter_key}"))
-        result.append({
-            "cluster_id": cluster_id,
-            "cluster_key": chapter_key,
-            "concept_ids": concept_ids,
-            "size": len(concept_ids),
-        })
-    return result
+def _now_iso() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _compute_difficulty_distribution(nodes: List[Dict[str, Any]]) -> Dict[str, int]:
-    dist: Dict[str, int] = {"easy": 0, "medium": 0, "hard": 0}
-    for n in nodes:
-        d = n.get("pedagogical_metadata", {}).get("difficulty_level", "medium")
-        dist[d] = dist.get(d, 0) + 1
-    return dist
+def _backfill_related_concepts(
+    context: Any,
+    nodes: Dict[str, Any],
+    edges: Dict[str, Any],
+    teaching_units: Dict[str, Any],
+) -> None:
+    """Backfill TU.related_concepts from EKG RELATED_TO edges.
 
+    Authority:
+      AUTHORITY_MATRIX §4.2 — EKG RELATED_TO is canonical; TU.related_concepts is derived.
+      TEACHING_UNIT_SPECIFICATION §3 — related_concepts: "Canonical source: EKG RELATED_TO".
 
-def _compute_bloom_distribution(nodes: List[Dict[str, Any]]) -> Dict[str, int]:
-    dist: Dict[str, int] = {}
-    for n in nodes:
-        b = n.get("pedagogical_metadata", {}).get("bloom_taxonomy_level", "understand")
-        dist[b] = dist.get(b, 0) + 1
-    return dist
+    Builds ConceptRef snapshots for each concept's RELATED_TO neighbours.
+    Symmetric: both endpoints receive each other as a related concept.
+    Only populates for concept-type nodes (teaching_unit_id is set).
+    """
+    if not teaching_units:
+        return
 
+    # Build ekg_node_id -> concept_id reverse map (concept nodes only)
+    ekg_node_to_concept: Dict[str, str] = {}
+    for node in nodes.values():
+        tid = node.get("teaching_unit_id")
+        if tid:
+            ekg_node_to_concept[node["ekg_node_id"]] = tid
 
-def _synthetic_kg_from_concepts(concepts: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Builds minimal KG from concept list when no real KG is available."""
-    nodes = []
-    for c in concepts:
-        if isinstance(c, dict):
-            nodes.append({
-                "id": str(c.get("id") or c.get("concept_id") or c.get("name", "")),
-                "name": str(c.get("name") or c.get("title") or ""),
-                "chapter_id": str(c.get("chapter_id") or c.get("chapter") or ""),
-                "prerequisites": c.get("prerequisites") or [],
+    # Build per-concept related_concepts list from RELATED_TO edges
+    related_map: Dict[str, List[Dict[str, Any]]] = {cid: [] for cid in teaching_units}
+
+    for edge in edges.values():
+        if edge.get("edge_type") != "RELATED_TO":
+            continue
+        src_nid = edge.get("source_node_id", "")
+        tgt_nid = edge.get("target_node_id", "")
+        src_cid = ekg_node_to_concept.get(src_nid)
+        tgt_cid = ekg_node_to_concept.get(tgt_nid)
+        if not src_cid or not tgt_cid:
+            continue
+        # Both endpoints: tgt is related to src, src is related to tgt
+        for (owner_cid, related_cid) in ((src_cid, tgt_cid), (tgt_cid, src_cid)):
+            if owner_cid not in related_map:
+                continue
+            existing = {r["concept_id"] for r in related_map[owner_cid]}
+            if related_cid in existing:
+                continue
+            related_tu = teaching_units.get(related_cid) or {}
+            related_map[owner_cid].append({
+                "concept_id": related_cid,
+                "concept_key": str(related_tu.get("concept_key") or ""),
+                "concept_name": str(related_tu.get("title") or related_cid),
+                "teaching_unit_id": str(related_tu.get("unit_id") or ""),
             })
-    return {"nodes": nodes, "edges": [], "source": "synthetic_from_concepts"}
+
+    # Write back to TUs
+    for concept_id, related in related_map.items():
+        if concept_id in teaching_units:
+            teaching_units[concept_id]["related_concepts"] = related

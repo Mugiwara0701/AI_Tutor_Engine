@@ -47,7 +47,7 @@ def register_tkb_artifact(
     attempted in no-op mode (artifact is valid, only discovery is skipped).
     """
     artifact = serialization_result.artifact
-    artifact_id = artifact.get_artifact_id()
+    artifact_id = artifact.get_tkb_id()
     fingerprint = serialization_result.fingerprint
 
     registration_record: Dict[str, str] = {
@@ -123,7 +123,7 @@ def _persist_to_storage(
 ) -> str:
     """Persists the TKB artifact dict to storage using the same upload_json()
     surface artifact_manager/persistence.py already uses. Returns the path."""
-    artifact_id = serialization_result.artifact.get_artifact_id()
+    artifact_id = serialization_result.artifact.get_tkb_id()
     path = f"_teacher_knowledge_bases/{artifact_id}/{TKB_RECORD_FILENAME}"
     storage_dict = serialization_result.to_storage_dict()
     try:

@@ -1,56 +1,59 @@
 """
-teacher_knowledge_base/builders/progression_builder.py — M6.1: Concept
-Progression Template builder.
+teacher_knowledge_base/builders/progression_builder.py — M6.1 (remediated)
 
-SPECIFICATION: LEARNING_GRAPH_SPECIFICATION.md (concept_progression_templates section)
+SPECIFICATION: LEARNING_GRAPH_SPECIFICATION.md (CPT-SPEC-v1.1.1)
 
-SCOPE: ConceptProgressionTemplates define reusable teaching arc patterns for
-concept sequences. Each template describes a canonical progression from
-foundational to advanced concepts within a coherent subject cluster.
+WHAT CHANGED FROM PREVIOUS IMPLEMENTATION:
+  - CPT is a Dict[concept_id -> ConceptProgressionTemplate], NOT a list
+  - One CPT per concept (not per cluster)
+  - CPT contains stage_resources (ID pointers into TU), NOT bloom_arc/difficulty_arc
+  - progression_type, anchor_concept_id, entry_concepts, exit_concepts are NOT spec fields
+  - template_id = UUID5(concept_id + "cpt" + tkb_id)  (spec §3)
 
-A progression template is NOT a concrete lesson plan — it is a pattern
-template that Phase 2 runtime uses to instantiate adaptive teaching paths.
-This builder ONLY produces the templates; runtime instantiation is Phase 2.
+WHAT A ConceptProgressionTemplate CONTAINS (spec §3):
+  template_id, template_urn, concept_id, concept_name, tkb_id
+  stage_resources:
+    BEGINNER:         {definition_present, figure_ids, simple_example_ids, learning_objective_ids}
+    INTERMEDIATE:     {explanation_variant_ids, example_ids, learning_objective_ids}
+    ADVANCED:         {worked_example_ids, formula_ids, application_ids, learning_objective_ids}
+    MASTERY:          {assessment_item_ids, practice_question_ids, learning_objective_ids}
+    ASSESSMENT_READY: {full_assessment_item_ids}
+  revision_resources: {revision_note_ids, key_formula_ids, definition_present}
+  suggested_thresholds: {advance_score, revisit_score}  -- advisory only
+  estimated_stage_minutes: {BEGINNER, INTERMEDIATE, ADVANCED, MASTERY, ASSESSMENT_READY}
+  prerequisite_concept_ids: List[str]  -- from EDG, not independently authored
+  difficulty, importance  -- from OKP.learning_analytics
 
-TEMPLATE STRUCTURE (per spec):
-  - template_id (UUID5, deterministic)
-  - template_name
-  - progression_type: linear | branching | spiral | mastery
-  - anchor_concept_id (the central concept this template is built around)
-  - entry_concepts (prerequisites from outside this cluster)
-  - core_sequence (ordered list of concept IDs — the main teaching arc)
-  - exit_concepts (concepts this cluster enables downstream)
-  - bloom_arc (Bloom level progression across the template)
-  - difficulty_arc (easy -> medium -> hard progression)
-  - estimated_total_duration_minutes
-  - teaching_unit_ids (which TeachingUnits implement this template)
-
-INPUT: EKG (concept clusters + learning paths), TeachingUnits.
+VALIDATION (spec §6):
+  1. All IDs in stage_resources resolve within teaching_units[concept_id]
+  2. revision_resources.revision_note_ids resolve within TU.revision_notes
+  3. prerequisite_concept_ids matches EDG.nodes[concept_id].prerequisite_ids
+  4. suggested_thresholds.advance_score in [0.0, 1.0]
+  5. Every concept in teaching_units has exactly one CPT
 """
 from __future__ import annotations
 
-import json
 import uuid
 import logging
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from ..exceptions import TKBBuilderError
 
 logger = logging.getLogger("teacher_knowledge_base.builders.progression")
 
-CPT_VERSION = "M6.1.0"
-_CPT_NAMESPACE = uuid.UUID("11223344-5566-7788-99aa-bbccddeeff00")
+_CPT_NS = uuid.UUID("fedcba98-0000-3210-fedc-ba9876543210")
 
 STAGE = "concept_progression_templates"
+CPT_VERSION = "1.1.1"
 
-_BLOOM_ORDER = ["remember", "understand", "apply", "analyze", "evaluate", "create"]
+LEARNING_STAGES = ("BEGINNER", "INTERMEDIATE", "ADVANCED", "MASTERY", "ASSESSMENT_READY")
 
 
 def build(context: "TKBContext") -> None:  # noqa: F821
     import time
     t0 = time.monotonic()
     try:
-        _build_progression_templates(context)
+        _build_cpts(context)
     except TKBBuilderError:
         raise
     except Exception as exc:
@@ -59,254 +62,192 @@ def build(context: "TKBContext") -> None:  # noqa: F821
         context.record_stage_timing(STAGE, time.monotonic() - t0)
 
 
-def _build_progression_templates(context: "TKBContext") -> None:
-    ekg = context.require_output("ekg", STAGE)
+def _build_cpts(context: "TKBContext") -> None:  # noqa: F821
     teaching_units = context.require_output("teaching_units", STAGE)
+    edg_output = context.get_output("edg")
+    tkb_id = context.tkb_id
+    artifacts = context.compiler_artifacts
+    learning_analytics = _get_learning_analytics(artifacts)
 
-    concept_clusters = ekg.get("concept_clusters") or []
-    learning_paths = ekg.get("learning_paths") or []
-    ekg_nodes = ekg.get("nodes") or []
-    artifact_id = context.metadata.artifact_id
-
-    # Build per-cluster node lookup
-    node_lookup: Dict[str, Dict[str, Any]] = {}
-    for n in ekg_nodes:
-        nid = str(n.get("id") or n.get("concept_id") or n.get("enriched_id", ""))
-        if nid:
-            node_lookup[nid] = n
-
-    # Build unit lookup: unit_id -> unit
-    unit_lookup: Dict[str, Dict[str, Any]] = {u["unit_id"]: u for u in teaching_units}
-
-    templates: List[Dict[str, Any]] = []
-
-    # One template per concept cluster
-    for cluster in concept_clusters:
-        template = _build_cluster_template(
-            cluster=cluster,
-            node_lookup=node_lookup,
-            unit_lookup=unit_lookup,
-            artifact_id=artifact_id,
+    cpts: Dict[str, Any] = {}  # concept_id -> ConceptProgressionTemplate
+    for concept_id, tu in teaching_units.items():
+        cpt = _build_one_cpt(
+            concept_id=concept_id,
+            tu=tu,
+            tkb_id=tkb_id,
+            edg_output=edg_output,
+            learning_analytics=learning_analytics,
         )
-        if template:
-            templates.append(template)
+        cpts[concept_id] = cpt
 
-    # Additional template from learning paths (if any)
-    for lp in learning_paths:
-        template = _build_path_template(
-            learning_path=lp,
-            node_lookup=node_lookup,
-            unit_lookup=unit_lookup,
-            artifact_id=artifact_id,
-        )
-        if template:
-            templates.append(template)
-
-    # Deduplicate by template_id, stable sort
-    seen: Set[str] = set()
-    unique_templates = []
-    for t in sorted(templates, key=lambda x: x.get("template_id", "")):
-        tid = t.get("template_id", "")
-        if tid not in seen:
-            seen.add(tid)
-            unique_templates.append(t)
-
-    context.set_output(STAGE, unique_templates)
+    context.set_output(STAGE, cpts)
     logger.info(
-        "Progression Template builder: produced %d concept progression templates.",
-        len(unique_templates),
+        "Progression Template builder: produced %d ConceptProgressionTemplates (Dict[concept_id -> CPT]).",
+        len(cpts),
     )
 
 
-def _build_cluster_template(
-    cluster: Dict[str, Any],
-    node_lookup: Dict[str, Dict[str, Any]],
-    unit_lookup: Dict[str, Dict[str, Any]],
-    artifact_id: str,
-) -> Optional[Dict[str, Any]]:
-    concept_ids = cluster.get("concept_ids") or []
-    if not concept_ids:
-        return None
+def _build_one_cpt(
+    concept_id: str,
+    tu: Dict[str, Any],
+    tkb_id: str,
+    edg_output: Optional[Dict[str, Any]],
+    learning_analytics: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build one ConceptProgressionTemplate from TU content (spec §3).
+    All values are ID pointers — no full content objects."""
+    template_id = str(uuid.uuid5(_CPT_NS, f"{concept_id}:cpt:{tkb_id}"))
+    template_urn = f"urn:tkb:cpt:{template_id}"
+    concept_name = str(tu.get("title") or concept_id)
 
-    cluster_key = str(cluster.get("cluster_key") or cluster.get("cluster_id") or "")
-    key = json.dumps(
-        {"cluster_key": cluster_key, "concepts": sorted(concept_ids)},
-        sort_keys=True, separators=(",", ":"),
-    )
-    template_id = str(uuid.uuid5(_CPT_NAMESPACE, f"{artifact_id}:cpt:cluster:{key}"))
-
-    # Sort concepts by prerequisite weight (descending = anchor first)
-    ordered = _order_concepts_for_teaching(concept_ids, node_lookup)
-    core_sequence = [str(c) for c in ordered]
-    anchor = core_sequence[0] if core_sequence else ""
-
-    # Entry/exit concepts
-    entry_concepts = _compute_entry_concepts(concept_ids, node_lookup)
-    exit_concepts = _compute_exit_concepts(concept_ids, node_lookup)
-
-    bloom_arc = _compute_bloom_arc(ordered, node_lookup)
-    difficulty_arc = _compute_difficulty_arc(ordered, node_lookup)
-    total_duration = _compute_total_duration(concept_ids, node_lookup)
-    progression_type = _classify_progression_type(bloom_arc, difficulty_arc)
-
-    # Find TeachingUnits that implement this cluster
-    implementing_units = [
-        uid for uid, u in unit_lookup.items()
-        if any(cid in concept_ids for cid in u.get("concepts", []))
+    # Extract ID lists from TU for each stage
+    # All lists contain item_ids, figure_ids, etc. — never full objects
+    figure_ids = [f.get("figure_id", "") for f in (tu.get("figures") or []) if f.get("figure_id")]
+    simple_example_ids = [
+        e.get("example_id", "") for e in (tu.get("examples") or [])
+        if not e.get("is_worked") and e.get("example_id")
+    ]
+    all_example_ids = [
+        e.get("example_id", "") for e in (tu.get("examples") or [])
+        if e.get("example_id")
+    ]
+    worked_example_ids = [
+        e.get("example_id", "") for e in (tu.get("worked_examples") or [])
+        if e.get("example_id")
+    ]
+    formula_ids = [f.get("formula_id", "") for f in (tu.get("formulae") or []) if f.get("formula_id")]
+    application_ids = [a.get("application_id", "") for a in (tu.get("applications") or []) if a.get("application_id")]
+    explanation_variant_ids = [
+        v.get("variant_id", "") for v in (tu.get("explanations") or [])
+        if v.get("variant_id") and v.get("style") in ("conversational", "step_by_step")
     ]
 
-    anchor_node = node_lookup.get(anchor) or {}
+    # Objectives sorted by Bloom level
+    all_objectives = tu.get("learning_objectives") or []
+    beginner_obj_ids = [o["objective_id"] for o in all_objectives
+                        if o.get("bloom_level") in ("remember", "understand") and o.get("objective_id")]
+    intermediate_obj_ids = [o["objective_id"] for o in all_objectives
+                             if o.get("bloom_level") == "understand" and o.get("objective_id")]
+    advanced_obj_ids = [o["objective_id"] for o in all_objectives
+                        if o.get("bloom_level") in ("apply", "analyze") and o.get("objective_id")]
+    mastery_obj_ids = [o["objective_id"] for o in all_objectives
+                       if o.get("bloom_level") in ("evaluate", "create") and o.get("objective_id")]
+    all_obj_ids = [o["objective_id"] for o in all_objectives if o.get("objective_id")]
+
+    # Assessment IDs (from TU assessments + practice_questions)
+    assessment_item_ids = [
+        a["item_id"] for a in (tu.get("assessments") or [])
+        if a.get("item_id") and a.get("provenance_tier") != "empty_placeholder"
+    ]
+    practice_question_ids = [
+        a["item_id"] for a in (tu.get("practice_questions") or [])
+        if a.get("item_id") and a.get("provenance_tier") != "empty_placeholder"
+    ]
+    # ASSESSMENT_READY: complete formal assessment set
+    full_assessment_item_ids = assessment_item_ids[:]  # same items, full set
+
+    # Revision resources
+    revision_note_ids = [n["note_id"] for n in (tu.get("revision_notes") or []) if n.get("note_id")]
+    key_formula_ids = formula_ids  # all formulae are key for revision
+    definition_present = bool(tu.get("definition", {}).get("text"))
+
+    # Prerequisite concept IDs from EDG (canonical source; EDG authoritative)
+    prereq_ids = _get_prereq_ids_from_edg(concept_id, edg_output)
+
+    # Difficulty and importance from OKP.learning_analytics (not from heuristics)
+    analytics = learning_analytics.get(concept_id) or {}
+    difficulty = str(analytics.get("difficulty") or tu.get("difficulty") or "")
+    importance = str(analytics.get("importance") or tu.get("importance") or "core")
+
+    # Estimated stage minutes (from learning_analytics if available; else 0)
+    est_minutes = float(analytics.get("estimated_teaching_time_minutes") or tu.get("estimated_teaching_time_minutes") or 0.0)
+    # Advisory breakdown by stage (proportional if total known; else equal split)
+    stage_min = _split_stage_minutes(est_minutes)
+
+    # Advisory thresholds (product policy advisory defaults — Phase 2 overrides)
+    # These are fixed advisory values per spec — no heuristics
+    suggested_thresholds = {
+        "advance_score": 0.7,    # advisory: advance at 70%
+        "revisit_score": 0.4,    # advisory: revisit below 40%
+    }
+
     return {
         "template_id": template_id,
-        "version": CPT_VERSION,
-        "template_name": f"Progression: {anchor_node.get('name') or anchor or cluster_key}",
-        "cluster_key": cluster_key,
-        "progression_type": progression_type,
-        "anchor_concept_id": anchor,
-        "entry_concepts": entry_concepts,
-        "core_sequence": core_sequence,
-        "exit_concepts": exit_concepts,
-        "bloom_arc": bloom_arc,
-        "difficulty_arc": difficulty_arc,
-        "estimated_total_duration_minutes": max(10, total_duration),
-        "teaching_unit_ids": sorted(implementing_units),
-        "concept_count": len(concept_ids),
+        "template_urn": template_urn,
+        "concept_id": concept_id,
+        "concept_name": concept_name,
+        "tkb_id": tkb_id,
+        "stage_resources": {
+            "BEGINNER": {
+                "definition_present": definition_present,
+                "figure_ids": figure_ids[:3],  # simplest figures (first 3)
+                "simple_example_ids": simple_example_ids,
+                "learning_objective_ids": beginner_obj_ids or all_obj_ids[:1],
+            },
+            "INTERMEDIATE": {
+                "explanation_variant_ids": explanation_variant_ids,
+                "example_ids": all_example_ids,
+                "learning_objective_ids": intermediate_obj_ids or all_obj_ids,
+            },
+            "ADVANCED": {
+                "worked_example_ids": worked_example_ids,
+                "formula_ids": formula_ids,
+                "application_ids": application_ids,
+                "learning_objective_ids": advanced_obj_ids or all_obj_ids,
+            },
+            "MASTERY": {
+                "assessment_item_ids": assessment_item_ids,
+                "practice_question_ids": practice_question_ids,
+                "learning_objective_ids": mastery_obj_ids or all_obj_ids,
+            },
+            "ASSESSMENT_READY": {
+                "full_assessment_item_ids": full_assessment_item_ids,
+            },
+        },
+        "revision_resources": {
+            "revision_note_ids": revision_note_ids,
+            "key_formula_ids": key_formula_ids,
+            "definition_present": definition_present,
+        },
+        "suggested_thresholds": suggested_thresholds,
+        "estimated_stage_minutes": stage_min,
+        "prerequisite_concept_ids": prereq_ids,
+        "difficulty": difficulty,
+        "importance": importance,
     }
 
 
-def _build_path_template(
-    learning_path: Dict[str, Any],
-    node_lookup: Dict[str, Dict[str, Any]],
-    unit_lookup: Dict[str, Dict[str, Any]],
-    artifact_id: str,
-) -> Optional[Dict[str, Any]]:
-    concept_sequence = learning_path.get("concept_sequence") or []
-    if not concept_sequence:
-        return None
+def _get_prereq_ids_from_edg(
+    concept_id: str,
+    edg_output: Optional[Dict[str, Any]],
+) -> List[str]:
+    """Gets prerequisite_ids from EDG (canonical source). EDG is authoritative (spec §4)."""
+    if not edg_output:
+        return []
+    edg_nodes = edg_output.get("nodes") or {}
+    node = edg_nodes.get(concept_id) or {}
+    return list(node.get("prerequisite_ids") or [])
 
-    path_id = str(learning_path.get("path_id") or "")
-    key = json.dumps({"path_id": path_id, "sequence": concept_sequence},
-                     sort_keys=True, separators=(",", ":"))
-    template_id = str(uuid.uuid5(_CPT_NAMESPACE, f"{artifact_id}:cpt:path:{key}"))
 
-    bloom_arc = _compute_bloom_arc(concept_sequence, node_lookup)
-    difficulty_arc = _compute_difficulty_arc(concept_sequence, node_lookup)
-    total_duration = _compute_total_duration(concept_sequence, node_lookup)
-    anchor = concept_sequence[0] if concept_sequence else ""
-    anchor_node = node_lookup.get(anchor) or {}
-
-    implementing_units = [
-        uid for uid, u in unit_lookup.items()
-        if any(cid in concept_sequence for cid in u.get("concepts", []))
-    ]
-
-    return {
-        "template_id": template_id,
-        "version": CPT_VERSION,
-        "template_name": f"Learning Path: {anchor_node.get('name') or anchor}",
-        "cluster_key": f"path:{path_id}",
-        "progression_type": "linear",
-        "anchor_concept_id": anchor,
-        "entry_concepts": [],
-        "core_sequence": list(concept_sequence),
-        "exit_concepts": [],
-        "bloom_arc": bloom_arc,
-        "difficulty_arc": difficulty_arc,
-        "estimated_total_duration_minutes": max(10, total_duration),
-        "teaching_unit_ids": sorted(implementing_units),
-        "concept_count": len(concept_sequence),
+def _split_stage_minutes(total: float) -> Dict[str, float]:
+    """Advisory split of total estimated minutes across 5 stages.
+    Simple proportional split — no heuristic formula."""
+    if total <= 0:
+        return {s: 0.0 for s in LEARNING_STAGES}
+    proportions = {
+        "BEGINNER": 0.15,
+        "INTERMEDIATE": 0.25,
+        "ADVANCED": 0.30,
+        "MASTERY": 0.20,
+        "ASSESSMENT_READY": 0.10,
     }
+    return {s: round(total * p, 2) for s, p in proportions.items()}
 
 
-def _order_concepts_for_teaching(
-    concept_ids: List[str],
-    node_lookup: Dict[str, Dict[str, Any]],
-) -> List[str]:
-    """Orders concepts: higher prerequisite_ordering_weight first (anchor concepts first),
-    then alphabetically."""
-    def sort_key(cid: str):
-        n = node_lookup.get(str(cid)) or {}
-        weight = n.get("pedagogical_metadata", {}).get("prerequisite_ordering_weight", 1.0)
-        return (-float(weight), str(cid))
-    return sorted(concept_ids, key=sort_key)
-
-
-def _compute_entry_concepts(
-    concept_ids: List[str],
-    node_lookup: Dict[str, Dict[str, Any]],
-) -> List[str]:
-    """Concepts that are prerequisites FROM OUTSIDE this cluster."""
-    cluster_set = set(concept_ids)
-    entry: Set[str] = set()
-    for cid in concept_ids:
-        n = node_lookup.get(str(cid)) or {}
-        for prereq in (n.get("prerequisites") or
-                       n.get("pedagogical_metadata", {}).get("prerequisite_concept_ids") or []):
-            prereq_str = str(prereq)
-            if prereq_str not in cluster_set:
-                entry.add(prereq_str)
-    return sorted(entry)
-
-
-def _compute_exit_concepts(
-    concept_ids: List[str],
-    node_lookup: Dict[str, Dict[str, Any]],
-) -> List[str]:
-    """Concepts enabled by this cluster that are outside the cluster."""
-    cluster_set = set(concept_ids)
-    exits: Set[str] = set()
-    for cid in concept_ids:
-        n = node_lookup.get(str(cid)) or {}
-        for dep in (n.get("dependents") or n.get("enables") or []):
-            dep_str = str(dep)
-            if dep_str not in cluster_set:
-                exits.add(dep_str)
-    return sorted(exits)
-
-
-def _compute_bloom_arc(
-    sequence: List[str],
-    node_lookup: Dict[str, Dict[str, Any]],
-) -> List[str]:
-    arc = []
-    for cid in sequence:
-        n = node_lookup.get(str(cid)) or {}
-        bl = n.get("pedagogical_metadata", {}).get("bloom_taxonomy_level", "understand")
-        if not arc or arc[-1] != bl:
-            arc.append(bl)
-    return arc
-
-
-def _compute_difficulty_arc(
-    sequence: List[str],
-    node_lookup: Dict[str, Dict[str, Any]],
-) -> List[str]:
-    arc = []
-    for cid in sequence:
-        n = node_lookup.get(str(cid)) or {}
-        d = n.get("pedagogical_metadata", {}).get("difficulty_level", "medium")
-        if not arc or arc[-1] != d:
-            arc.append(d)
-    return arc
-
-
-def _compute_total_duration(
-    concept_ids: List[str],
-    node_lookup: Dict[str, Dict[str, Any]],
-) -> int:
-    total = 0
-    for cid in concept_ids:
-        n = node_lookup.get(str(cid)) or {}
-        total += n.get("pedagogical_metadata", {}).get("estimated_mastery_time_minutes", 30)
-    return total
-
-
-def _classify_progression_type(bloom_arc: List[str], difficulty_arc: List[str]) -> str:
-    """Classifies the progression pattern type."""
-    if len(bloom_arc) >= 4:
-        return "spiral"
-    if len(set(difficulty_arc)) == 1:
-        return "mastery"
-    if len(bloom_arc) == 1:
-        return "linear"
-    return "branching"
+def _get_learning_analytics(artifacts: Dict[str, Any]) -> Dict[str, Any]:
+    okp = artifacts.get("optimized_knowledge_package") or {}
+    if isinstance(okp, dict):
+        la = okp.get("learning_analytics") or {}
+        ca = la.get("concept_analytics") or {}
+        return ca if isinstance(ca, dict) else {}
+    return {}

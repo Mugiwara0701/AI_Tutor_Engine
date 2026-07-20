@@ -1,196 +1,172 @@
 """
-teacher_knowledge_base/artifact.py — M6.1: TeacherKnowledgeBase artifact.
+teacher_knowledge_base/artifact.py — M6.1/M6.2 (remediated)
 
-THE CANONICAL ARTIFACT OBJECT for M6.1. Assembles every schema section
-defined in TEACHER_KNOWLEDGE_BASE_SCHEMA.md into one immutable, serializable
-record. This is the final output of the TKB build pipeline.
+Assembles the final TeacherKnowledgeBase from TKBContext.
+Schema exactly as defined in TEACHER_KNOWLEDGE_BASE_SCHEMA.md v1.1.1.
 
-SCHEMA SECTIONS (per TEACHER_KNOWLEDGE_BASE_SCHEMA.md, implemented exactly):
-  - metadata
-  - compiler_information
-  - enriched_document_structure_tree       (EDST)
-  - enriched_knowledge_graph               (EKG)
-  - enriched_dependency_graph              (EDG)
-  - concept_progression_templates
-  - curriculum_graph
-  - teaching_units
-  - navigation
-  - runtime_indexes
-  - statistics
-  - validation
-  - serialization_metadata
+TOP-LEVEL FIELDS (spec §1):
+  tkb_id, tkb_urn, tkb_version, schema_version,
+  metadata (TKBMetadata), compiler_information (TKBCompilerInfo),
+  enriched_document_structure_tree, enriched_knowledge_graph,
+  enriched_dependency_graph,
+  concept_progression_templates: Dict[concept_id -> CPT],
+  curriculum_graph,
+  teaching_units: Dict[concept_id -> TeachingUnit],
+  navigation (NavigationIndex with 6 sub-navigations),
+  runtime_indexes (RuntimeIndexes with 7 indexes),
+  statistics (TKBStatistics),
+  validation (TKBValidation),
+  serialization_metadata (TKBSerializationMetadata)
 
-No schema deviations. Every section is populated from the TKBContext by
-artifact.build_artifact() — this class is a pure data holder, not a builder.
+IMMUTABLE: once constructed, never modified.
+DETERMINISTIC: identical inputs -> identical output.
 
-IMMUTABILITY: once constructed, a TeacherKnowledgeBase is never modified.
-to_dict() produces a deterministic, JSON-safe representation. Identical
-context inputs always produce an identical artifact (determinism guarantee).
-
-REUSE: the artifact's own fingerprint is computed using canonicalization.py's
-sha256_hexdigest(canonical_json(strip_volatile(to_dict()))) — the exact same
-strategy every other phase's fingerprint already uses.
+SERIALIZATION METADATA (spec §9):
+  {format, schema_version, encoding, sort_keys,
+   search_version="lexical_v1", embedding_model=null, created_at, content_hash, byte_size}
 """
 from __future__ import annotations
 
+import hashlib
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from canonicalization import sha256_hexdigest, canonical_json, strip_volatile
 
-# Version of this artifact's schema — bump only if the shape changes.
-TKB_ARTIFACT_VERSION = "M6.1.0"
+from .metadata import TKBMetadata, TKBCompilerInfo, TKB_VERSION, TKB_SCHEMA_VERSION, make_tkb_urn
+
+TKB_ARTIFACT_VERSION = TKB_VERSION  # "1.1.1"
+
+# Extra volatile keys not in canonicalization.VOLATILE_KEYS
+_EXTRA_VOLATILE = frozenset({
+    "serialized_at", "created_at", "validated_at", "content_hash",
+    "byte_size", "total_build_time_seconds", "stage_timings_seconds",
+})
 
 
 @dataclass(frozen=True)
 class TeacherKnowledgeBase:
-    """The complete Teacher Knowledge Base artifact.
+    """Immutable TeacherKnowledgeBase artifact per TEACHER_KNOWLEDGE_BASE_SCHEMA.md §1."""
+    # --- Top-level identity (spec §1) ---
+    tkb_id:         str
+    tkb_urn:        str
+    tkb_version:    str     # "1.1.1"
+    schema_version: str     # "1.1.1"
 
-    ALL fields are populated by artifact.build_artifact() from TKBContext.
-    This class is a pure immutable data holder — no computation happens here.
-
-    Field names match TEACHER_KNOWLEDGE_BASE_SCHEMA.md exactly.
-    """
-
-    # Identity and provenance
-    metadata: Dict[str, Any]
-    compiler_information: Dict[str, Any]
-
-    # Enriched graphs (Phase 1 compiler artifacts + enrichment)
-    enriched_document_structure_tree: Dict[str, Any]
-    enriched_knowledge_graph: Dict[str, Any]
-    enriched_dependency_graph: Dict[str, Any]
-
-    # Teaching structure
-    concept_progression_templates: List[Dict[str, Any]]
-    curriculum_graph: Dict[str, Any]
-    teaching_units: List[Dict[str, Any]]
-
-    # Navigation and runtime
-    navigation: Dict[str, Any]
-    runtime_indexes: Dict[str, Any]
-
-    # Quality and provenance
-    statistics: Dict[str, Any]
-    validation: Dict[str, Any]
-    serialization_metadata: Dict[str, Any]
+    # --- Sections ---
+    metadata:                          Dict[str, Any]   # TKBMetadata dict
+    compiler_information:              Dict[str, Any]   # TKBCompilerInfo dict
+    enriched_document_structure_tree:  Dict[str, Any]
+    enriched_knowledge_graph:          Dict[str, Any]
+    enriched_dependency_graph:         Dict[str, Any]
+    concept_progression_templates:     Dict[str, Any]  # Dict[concept_id -> CPT]
+    curriculum_graph:                  Dict[str, Any]
+    teaching_units:                    Dict[str, Any]  # Dict[concept_id -> TeachingUnit]
+    navigation:                        Dict[str, Any]  # NavigationIndex
+    runtime_indexes:                   Dict[str, Any]  # RuntimeIndexes
+    statistics:                        Dict[str, Any]  # TKBStatistics
+    validation:                        Dict[str, Any]  # TKBValidation
+    serialization_metadata:            Dict[str, Any]  # TKBSerializationMetadata
 
     def to_dict(self) -> Dict[str, Any]:
-        """Deterministic JSON-safe dict. Field order is stable — matches
-        TEACHER_KNOWLEDGE_BASE_SCHEMA.md top-level section order exactly."""
+        """Deterministic, JSON-safe dict. Field order matches spec §1 top-level ordering."""
         return {
-            "metadata": self.metadata,
+            "tkb_id":           self.tkb_id,
+            "tkb_urn":          self.tkb_urn,
+            "tkb_version":      self.tkb_version,
+            "schema_version":   self.schema_version,
+            "metadata":         self.metadata,
             "compiler_information": self.compiler_information,
             "enriched_document_structure_tree": self.enriched_document_structure_tree,
             "enriched_knowledge_graph": self.enriched_knowledge_graph,
             "enriched_dependency_graph": self.enriched_dependency_graph,
             "concept_progression_templates": self.concept_progression_templates,
             "curriculum_graph": self.curriculum_graph,
-            "teaching_units": self.teaching_units,
-            "navigation": self.navigation,
-            "runtime_indexes": self.runtime_indexes,
-            "statistics": self.statistics,
-            "validation": self.validation,
+            "teaching_units":   self.teaching_units,
+            "navigation":       self.navigation,
+            "runtime_indexes":  self.runtime_indexes,
+            "statistics":       self.statistics,
+            "validation":       self.validation,
             "serialization_metadata": self.serialization_metadata,
         }
 
-    def get_artifact_id(self) -> str:
-        return self.metadata.get("artifact_id", "")
-
-    def get_schema_version(self) -> str:
-        return self.metadata.get("schema_version", "")
-
-    def get_teaching_unit_count(self) -> int:
-        return len(self.teaching_units)
-
-    def get_concept_count(self) -> int:
-        return self.statistics.get("concept_statistics", {}).get("total_concepts", 0)
-
     def fingerprint(self) -> str:
-        """Deterministic SHA-256 fingerprint of this artifact's content.
-        Volatile fields (generated_at, serialized_at, timestamps) are stripped
-        before hashing — reuses canonicalization.py's shared strategy, plus
-        additional TKB-specific volatile keys not in the shared VOLATILE_KEYS set."""
+        """SHA-256 of the artifact content, excluding volatile fields.
+        Same strategy as every other Phase in this codebase."""
         import copy
-        d = strip_volatile(self.to_dict())
-        # serialized_at is not in canonicalization.VOLATILE_KEYS (which only
-        # covers generated_at/created_at etc.) — strip it here so two serializations
-        # of the same content always produce the same fingerprint.
-        _strip_extra_volatile(d)
+        d = strip_volatile(copy.deepcopy(self.to_dict()))
+        _strip_extra_volatile_recursive(d)
         return sha256_hexdigest(canonical_json(d))
 
+    def get_tkb_id(self) -> str:
+        return self.tkb_id
 
-def _strip_extra_volatile(d: Any) -> None:
-    """Recursively strips TKB-specific volatile keys not covered by canonicalization.VOLATILE_KEYS.
-    These are fields that change between runs (timings, timestamps, duration sums)
-    even when the content is identical."""
-    _EXTRA_VOLATILE = {
-        "serialized_at",
-        "total_build_time_seconds",
-        "stage_timings_seconds",  # per-run wall-clock — non-deterministic
-        "total_build_time_seconds",
-    }
+    def get_schema_version(self) -> str:
+        return self.schema_version
+
+    def get_total_concepts(self) -> int:
+        return len(self.teaching_units)
+
+    def get_total_teaching_units(self) -> int:
+        return len(self.teaching_units)
+
+
+def _strip_extra_volatile_recursive(d: Any) -> None:
+    """Strips extra volatile keys not covered by canonicalization.VOLATILE_KEYS."""
     if isinstance(d, dict):
-        for key in list(_EXTRA_VOLATILE):
-            d.pop(key, None)
-        for v in d.values():
-            _strip_extra_volatile(v)
+        for key in list(d.keys()):
+            if key in _EXTRA_VOLATILE:
+                del d[key]
+            else:
+                _strip_extra_volatile_recursive(d[key])
     elif isinstance(d, list):
         for item in d:
-            _strip_extra_volatile(item)
+            _strip_extra_volatile_recursive(item)
 
-
-
-
-# ---------------------------------------------------------------------------
-# Factory — assembles the artifact from a completed TKBContext.
-# ---------------------------------------------------------------------------
 
 def build_artifact(context: "TKBContext") -> TeacherKnowledgeBase:  # noqa: F821
-    """Assembles the final TeacherKnowledgeBase from a fully-executed
-    TKBContext. Called once by engine.py after all builder stages complete
-    and validation passes.
-
-    NEVER raises on missing optional stage outputs — uses sensible empty
-    defaults so the artifact is always well-formed. Fatal missing outputs
-    are caught by validation before this function is called.
-    """
-    from .context import TKBContext  # local import avoids circular
-
+    """Assembles the final TeacherKnowledgeBase from a complete TKBContext.
+    All required stage outputs must be present. Fatal missing outputs are
+    caught by validation before this is called."""
     outputs = context.outputs
-
-    # -- metadata and compiler_information ----------------------------------
     metadata_obj = context.metadata
     ci_obj = context.compiler_information
 
-    # -- Build each schema section from stage outputs -----------------------
+    tkb_id = metadata_obj.tkb_id
+    tkb_urn = make_tkb_urn(tkb_id)
+
+    # Retrieve stage outputs (validated before assembly)
     edst = outputs.get("edst") or _empty_edst()
-    ekg = outputs.get("ekg") or _empty_ekg()
     edg = outputs.get("edg") or _empty_edg()
-    teaching_units = outputs.get("teaching_units") or []
-    cpt = outputs.get("concept_progression_templates") or []
+    ekg = outputs.get("ekg") or _empty_ekg()
+    cpts = outputs.get("concept_progression_templates") or {}
     curriculum_graph = outputs.get("curriculum_graph") or _empty_curriculum_graph()
+    teaching_units = outputs.get("teaching_units") or {}
     navigation = outputs.get("navigation") or _empty_navigation()
     runtime_indexes = outputs.get("runtime_indexes") or _empty_runtime_indexes()
     statistics = outputs.get("statistics") or _empty_statistics()
     validation_block = outputs.get("validation") or _empty_validation()
 
-    # -- serialization_metadata ---------------------------------------------
+    # Serialization metadata (spec §9)
     serialization_metadata = _build_serialization_metadata(
-        artifact_id=metadata_obj.artifact_id,
-        stage_timings=context.stage_timings,
+        tkb_id=tkb_id,
         completed_stages=context.completed_stages,
+        stage_timings=context.stage_timings,
     )
 
     return TeacherKnowledgeBase(
+        tkb_id=tkb_id,
+        tkb_urn=tkb_urn,
+        tkb_version=TKB_VERSION,
+        schema_version=TKB_SCHEMA_VERSION,
         metadata=metadata_obj.to_dict(),
         compiler_information=ci_obj.to_dict(),
         enriched_document_structure_tree=edst,
         enriched_knowledge_graph=ekg,
         enriched_dependency_graph=edg,
-        concept_progression_templates=cpt,
+        concept_progression_templates=cpts,
         curriculum_graph=curriculum_graph,
         teaching_units=teaching_units,
         navigation=navigation,
@@ -202,120 +178,87 @@ def build_artifact(context: "TKBContext") -> TeacherKnowledgeBase:  # noqa: F821
 
 
 # ---------------------------------------------------------------------------
-# Empty-section defaults — used when an optional stage did not run.
-# These ensure the artifact is always schema-complete even in partial builds.
+# Empty defaults — used when an optional stage did not run
 # ---------------------------------------------------------------------------
 
 def _empty_edst() -> Dict[str, Any]:
-    return {
-        "version": "M6.1.0",
-        "enrichment_applied": False,
-        "nodes": [],
-        "enrichment_metadata": {},
-    }
-
-
-def _empty_ekg() -> Dict[str, Any]:
-    return {
-        "version": "M6.1.0",
-        "enrichment_applied": False,
-        "nodes": [],
-        "edges": [],
-        "enrichment_metadata": {},
-    }
+    return {"edst_id": "", "original_dst_id": "", "root_node_id": "", "nodes": {}, "node_count": 0, "max_depth": 0, "metadata": {}, "validation": {"status": "UNKNOWN", "warnings": []}}
 
 
 def _empty_edg() -> Dict[str, Any]:
-    return {
-        "version": "M6.1.0",
-        "enrichment_applied": False,
-        "nodes": [],
-        "edges": [],
-        "enrichment_metadata": {},
-    }
+    return {"edg_id": "", "original_dep_graph_id": "", "nodes": {}, "edges": {}, "prerequisite_chains": [], "remediation_paths": [], "alternative_paths": [], "topological_order": [], "node_count": 0, "edge_count": 0, "metadata": {}, "validation": {"is_dag": True, "status": "UNKNOWN", "warnings": [], "errors": []}}
+
+
+def _empty_ekg() -> Dict[str, Any]:
+    return {"ekg_id": "", "original_kg_id": "", "nodes": {}, "edges": {}, "node_count": 0, "edge_count": 0, "metadata": {}, "validation": {"status": "UNKNOWN", "warnings": []}}
 
 
 def _empty_curriculum_graph() -> Dict[str, Any]:
-    return {
-        "version": "M6.1.0",
-        "nodes": [],
-        "edges": [],
-        "metadata": {},
-    }
+    return {"cg_id": "", "scope_description": "within-book v1", "nodes": {}, "edges": {}, "cross_chapter_links": [], "node_count": 0, "edge_count": 0, "scopes_present": [], "metadata": {}, "validation": {"status": "UNKNOWN", "warnings": []}}
 
 
 def _empty_navigation() -> Dict[str, Any]:
     return {
-        "version": "M6.1.0",
-        "concept_map": {},
-        "teaching_unit_map": {},
-        "chapter_map": {},
-        "breadcrumb_index": {},
-        "metadata": {},
+        "teacher_navigation": {"nav_id": "", "ordered_sections": [], "concept_to_section": {}},
+        "question_navigation": {"nav_id": "", "by_difficulty": {}, "by_bloom_level": {}, "by_concept": {}, "by_type": {}, "by_provenance_tier": {}, "chapter_test_item_ids": [], "quick_check_item_ids": []},
+        "concept_navigation": {"nav_id": "", "concept_index": {}, "name_lookup": {}, "alias_lookup": {}},
+        "revision_navigation": {"nav_id": "", "full_chapter_revision": [], "by_importance": {}, "key_formula_ids": [], "definition_concept_ids": [], "mnemonics_available": [], "revision_by_time": {}, "spaced_repetition_groups": []},
+        "assessment_navigation": {"nav_id": "", "formative_sets": [], "summative_sets": [], "diagnostic_sets": [], "by_concept": {}},
+        "learning_path_navigation": {"nav_id": "", "canonical_path": [], "beginner_path": [], "accelerated_path": [], "prerequisite_first_path": [], "example_first_path": [], "paths_by_time": {}},
     }
 
 
 def _empty_runtime_indexes() -> Dict[str, Any]:
     return {
-        "version": "M6.1.0",
-        "concept_by_id": {},
-        "teaching_unit_by_id": {},
-        "concept_by_chapter": {},
-        "prerequisite_index": {},
-        "learning_path_index": {},
-        "metadata": {},
+        "concept_lookup_index": {"by_id": {}, "by_key": {}, "by_name": {}},
+        "semantic_search_index": {"entries": [], "total_entries": 0},
+        "prerequisite_index": {"by_concept": {}},
+        "teaching_retrieval_index": {"by_concept_id": {}, "by_section_id": {}, "by_difficulty": {}, "by_importance": {}},
+        "revision_retrieval_index": {"by_concept_id": {}, "formula_ids_ordered": [], "definition_index": {}, "core_concept_ids": []},
+        "assessment_retrieval_index": {"by_concept_id": {}, "by_difficulty": {}, "by_bloom_level": {}, "by_type": {}, "by_provenance_tier": {}, "chapter_test_item_ids": [], "assessment_item_location": {}},
+        "curriculum_traversal_index": {"by_concept_id": {}, "cross_chapter": []},
     }
 
 
 def _empty_statistics() -> Dict[str, Any]:
     return {
-        "version": "M6.1.0",
-        "concept_statistics": {"total_concepts": 0},
-        "teaching_unit_statistics": {"total_units": 0},
-        "graph_statistics": {},
-        "runtime_index_statistics": {},
-        "navigation_statistics": {},
-        "validation_statistics": {},
-        "memory_estimates": {},
-        "quality_statistics": {},
-        "build_statistics": {},
+        "total_concepts": 0, "total_teaching_units": 0, "total_learning_objectives": 0,
+        "total_assessments": 0, "total_practice_questions": 0, "total_prerequisites": 0,
+        "total_ekg_edges": 0, "total_edg_edges": 0, "total_curriculum_links": 0,
+        "total_figures": 0, "total_examples": 0, "total_formulae": 0,
+        "total_worked_examples": 0, "total_activities": 0, "coverage_score": 0.0,
+        "avg_completeness_score": 0.0, "avg_prerequisites_per_concept": 0.0,
+        "estimated_total_teaching_time_minutes": 0.0, "assessment_coverage_rate": 0.0,
     }
 
 
 def _empty_validation() -> Dict[str, Any]:
     return {
-        "version": "M6.1.0",
-        "passed": True,
-        "schema_validation": {"passed": True, "violations": []},
-        "reference_validation": {"passed": True, "violations": []},
-        "ownership_validation": {"passed": True, "violations": []},
-        "authority_validation": {"passed": True, "violations": []},
-        "graph_validation": {"passed": True, "violations": []},
-        "cross_reference_validation": {"passed": True, "violations": []},
-        "serialization_validation": {"passed": True, "violations": []},
-        "artifact_validation": {"passed": True, "violations": []},
-        "build_validation": {"passed": True, "violations": []},
+        "status": "VALID",
+        "checks": [],
+        "warnings": [],
+        "errors": [],
+        "validated_at": "",
     }
 
 
 def _build_serialization_metadata(
-    artifact_id: str,
-    stage_timings: Dict[str, float],
+    tkb_id: str,
     completed_stages: List[str],
+    stage_timings: Dict[str, float],
 ) -> Dict[str, Any]:
-    """Builds the serialization_metadata section — records how and when this
-    artifact was serialized. The serialized_at timestamp is volatile and
-    excluded from the content fingerprint (see canonicalization.VOLATILE_KEYS)."""
-    total_time = round(sum(stage_timings.values()), 4)
+    """TKBSerializationMetadata per spec §9. search_version='lexical_v1', embedding_model=null."""
     return {
-        "version": TKB_ARTIFACT_VERSION,
         "format": "json",
+        "schema_version": TKB_SCHEMA_VERSION,
         "encoding": "utf-8",
-        "serialized_at": datetime.now(timezone.utc).isoformat(),
-        "artifact_id": artifact_id,
+        "sort_keys": True,
+        "search_version": "lexical_v1",   # spec §9 — no vectors in v1
+        "embedding_model": None,           # null in v1 (spec §9)
+        "created_at": datetime.now(timezone.utc).isoformat(),  # volatile, excluded from fingerprint
+        "content_hash": "",                # computed post-assembly and injected
+        "byte_size": 0,                    # computed post-serialization and injected
+        # Internal build tracking (not in spec; removed from fingerprint)
         "pipeline_stages_completed": completed_stages,
         "stage_timings_seconds": stage_timings,
-        "total_build_time_seconds": total_time,
-        "ordering": "stable",
-        "determinism": "uuid5+canonical_json",
     }

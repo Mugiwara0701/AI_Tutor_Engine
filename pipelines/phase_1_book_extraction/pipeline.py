@@ -2400,6 +2400,126 @@ def process_chapter(pdf_path: str, book_ctx: pdf_parser.BookContext, chapter_ord
         document_structure_tree=document_structure_tree,
         copyright_debug_entries=_copyright_debug_entries,
     )
+
+    # ---- M6.3: Teacher Knowledge Base (TKB) Build -------------------------
+    # Runs after all Phase 1 artifacts are sealed and persisted.
+    # TKB Builder is a Phase 1 finalization stage (M6_ARCHITECTURE_SPECIFICATION §2).
+    # Non-fatal: a TKB build failure never breaks the chapter JSON output.
+    try:
+        from teacher_knowledge_base.builder import build_teacher_knowledge_base
+        from teacher_knowledge_base import state as tkb_state
+        tkb_state.reset_all_tkb_state()
+
+        # Assemble concept_index from knowledge_graph nodes.
+        _tkb_concept_index: Dict[str, Any] = {}
+        try:
+            _kg_nodes = getattr(knowledge_graph, "nodes", None)
+            if isinstance(_kg_nodes, dict):
+                for _nid, _node in _kg_nodes.items():
+                    _nd = _node if isinstance(_node, dict) else (
+                        _node.__dict__ if hasattr(_node, "__dict__") else {}
+                    )
+                    _tkb_concept_index[_nid] = {
+                        "concept_key": _nd.get("concept_key") or _nd.get("canonical_key") or "",
+                        "name": _nd.get("name") or _nd.get("title") or _nid,
+                        "title": _nd.get("name") or _nd.get("title") or _nid,
+                        "description": _nd.get("description") or "",
+                        "definition": _nd.get("definition") or _nd.get("description") or "",
+                        "definition_confidence": float(_nd.get("confidence") or 0.9),
+                        "prerequisites": _nd.get("prerequisites") or [],
+                        "difficulty": _nd.get("difficulty") or "medium",
+                        "importance": _nd.get("importance") or "core",
+                        "estimated_teaching_time_minutes": float(
+                            _nd.get("estimated_teaching_time_minutes") or 30.0
+                        ),
+                        "revision_notes": _nd.get("revision_notes") or [],
+                        "learning_objectives_raw": _nd.get("learning_objectives") or [],
+                    }
+        except Exception as _tkb_ci_exc:
+            logger.debug("TKB: concept_index extraction: %s", _tkb_ci_exc)
+
+        _tkb_kg_dict: Dict[str, Any] = {}
+        try:
+            _tkb_kg_dict = (
+                knowledge_graph.to_dict() if hasattr(knowledge_graph, "to_dict")
+                else (knowledge_graph if isinstance(knowledge_graph, dict)
+                      else getattr(knowledge_graph, "__dict__", {}))
+            )
+        except Exception:
+            pass
+
+        _tkb_dst_dict: Dict[str, Any] = {}
+        try:
+            if document_structure_tree is not None:
+                _tkb_dst_dict = (
+                    document_structure_tree.to_dict()
+                    if hasattr(document_structure_tree, "to_dict")
+                    else (document_structure_tree
+                          if isinstance(document_structure_tree, dict)
+                          else getattr(document_structure_tree, "__dict__", {}))
+                )
+        except Exception:
+            pass
+
+        _tkb_dep_edges: List[Any] = []
+        try:
+            _dg_data = dependency_graph_result.get("dependency_graph") or {}
+            _raw_edges = (
+                _dg_data.get("edges") or []
+                if isinstance(_dg_data, dict)
+                else getattr(_dg_data, "edges", []) or []
+            )
+            _tkb_dep_edges = [_e if isinstance(_e, dict) else {} for _e in _raw_edges]
+        except Exception:
+            pass
+
+        _tkb_result = build_teacher_knowledge_base(
+            config={
+                "chapter_id": chapter_reference,
+                "chapter_number": int(structure.chapter_number or 0),
+                "chapter_title": str(structure.chapter_title or ""),
+                "subject": str(structure.subject or ""),
+                "book_title": str(
+                    getattr(structure, "book_title", None) or book_slug or ""
+                ),
+                "klass": str(structure.klass or ""),
+                "board": str(getattr(structure, "board", None) or ""),
+                "source_artifact_id": chapter_reference,
+                "strict_validation": False,
+            },
+            direct_artifacts={
+                "optimized_knowledge_package": {
+                    "concept_index": _tkb_concept_index,
+                    "dependency_map": {"edges": _tkb_dep_edges},
+                    "learning_analytics": {"concept_analytics": {
+                        _cid: {
+                            "difficulty": _info.get("difficulty", "medium"),
+                            "importance": _info.get("importance", "core"),
+                            "estimated_teaching_time_minutes": float(
+                                _info.get("estimated_teaching_time_minutes", 30.0)
+                            ),
+                        }
+                        for _cid, _info in _tkb_concept_index.items()
+                    }},
+                    "manifest": {"package_id": chapter_reference},
+                },
+                "document_structure_tree": _tkb_dst_dict,
+                "knowledge_graph": _tkb_kg_dict,
+            },
+        )
+        logger.info(
+            "TKB build complete: tkb_id=%s concepts=%d validation=%s",
+            _tkb_result.artifact.get_tkb_id(),
+            _tkb_result.artifact.get_total_concepts(),
+            (_tkb_result.artifact.to_dict().get("validation") or {}).get("status", "?"),
+        )
+    except Exception as _tkb_exc:
+        logger.warning(
+            "TKB build failed (non-fatal) for chapter %r: %s",
+            chapter_reference,
+            _tkb_exc,
+        )
+
     return out_path
 
 

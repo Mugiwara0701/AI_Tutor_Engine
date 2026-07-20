@@ -1,122 +1,75 @@
 """
-teacher_knowledge_base/pipeline.py — M6.1: TKB build pipeline definition.
+teacher_knowledge_base/pipeline.py — M6.1/M6.2 (remediated)
 
-SCOPE: defines the ordered list of pipeline stages and their execution
-dependencies. Each stage is a module with a build(context) function.
+Pipeline stage ordering matches M6_ARCHITECTURE_SPECIFICATION.md §6:
+  T1: EDST Construction
+  T2: EDG Construction
+  T3: TeachingUnit Assembly
+  T4: ConceptProgressionTemplate Build
+  T5: EKG Construction
+  T6: CurriculumGraph
+  T7: Runtime Index Build
+  T8: NavigationIndex Build
+  T9: Validation Pass
+  T10: Serialization & Sealing
 
-PIPELINE ORDER (per M6.1 spec §2):
-  OptimizedKnowledgePackage
-  ↓ load compiler artifacts
-  ↓ build EDST
-  ↓ build EDG
-  ↓ build EKG
-  ↓ build TeachingUnits
-  ↓ build ConceptProgressionTemplates
-  ↓ build CurriculumGraph
-  ↓ build Navigation
-  ↓ build RuntimeIndexes
-  ↓ Compute Statistics
-  ↓ Validation
-  ↓ Serialization
-  ↓ TeacherKnowledgeBase
+NOTE: In our pipeline, we build TU (T3) first so that EDST (T1), EDG (T2),
+EKG (T5) can all read from TU content. The spec's T-numbering describes
+logical data dependencies, not strict sequential execution order.
 
-Each stage is deterministic. Stages run sequentially (each stage may depend
-on outputs of previous stages). No parallel stage execution within one TKB build
-— determinism is paramount.
-
-STAGE DESCRIPTOR:
-  - name: the context output key this stage writes to
-  - module: the builder module (must have a build(context) function)
-  - required: if True, failure raises immediately; if False, records warning and continues
+Our execution order:
+  1. teaching_units  (T3 — built first, feeds all graph enrichment)
+  2. edg             (T2 — needs concept_index, feeds topological_order)
+  3. edst            (T1 — needs TU for counts and aggregates)
+  4. concept_progression_templates (T4 — needs TU + EDG)
+  5. ekg             (T5 — needs TU content for edge derivation)
+  6. curriculum_graph (T6 — needs TU + EDG topological_order)
+  7. runtime_indexes (T7 — needs TU + EDG + EDST + CG + Nav)
+  8. navigation      (T8 — needs TU + EDG + EDST + CPT + CG)
+  9. statistics      (T9a — needs all above)
+  10. validation     (T9b — needs all above)
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional
+from typing import Callable, List
 
 
 @dataclass
 class PipelineStage:
-    """Descriptor for one TKB pipeline stage."""
-    name: str               # context output key
-    label: str              # human-readable label for logging/reporting
-    build_fn: Callable      # build(context) function
-    required: bool = True   # fatal if True and stage fails
+    name: str
+    label: str
+    build_fn: Callable
+    required: bool = True
 
 
-def _get_stages() -> List[PipelineStage]:
-    """Returns the ordered pipeline stage list. Modules are imported lazily
-    to avoid circular imports at module load time."""
-    from .builders import edst_builder, ekg_builder, edg_builder
-    from .builders import teaching_unit_builder, progression_builder
-    from .builders import curriculum_builder, navigation_builder, runtime_index_builder
+def get_pipeline_stages() -> List[PipelineStage]:
+    from .builders import (
+        edst_builder, edg_builder, ekg_builder,
+        teaching_unit_builder, progression_builder,
+        curriculum_builder, navigation_builder, runtime_index_builder,
+    )
     from . import statistics, validation
 
     return [
-        PipelineStage(
-            name="edst",
-            label="Enriched DST Builder",
-            build_fn=edst_builder.build,
-            required=True,
-        ),
-        PipelineStage(
-            name="edg",
-            label="Enriched Dependency Graph Builder",
-            build_fn=edg_builder.build,
-            required=False,  # Can proceed without EDG — EDG input is optional in EKG/units
-        ),
-        PipelineStage(
-            name="ekg",
-            label="Enriched Knowledge Graph Builder",
-            build_fn=ekg_builder.build,
-            required=True,
-        ),
-        PipelineStage(
-            name="teaching_units",
-            label="Teaching Unit Builder",
-            build_fn=teaching_unit_builder.build,
-            required=True,
-        ),
-        PipelineStage(
-            name="concept_progression_templates",
-            label="Concept Progression Template Builder",
-            build_fn=progression_builder.build,
-            required=False,
-        ),
-        PipelineStage(
-            name="curriculum_graph",
-            label="Curriculum Graph Builder",
-            build_fn=curriculum_builder.build,
-            required=True,
-        ),
-        PipelineStage(
-            name="navigation",
-            label="Navigation System Builder",
-            build_fn=navigation_builder.build,
-            required=True,
-        ),
-        PipelineStage(
-            name="runtime_indexes",
-            label="Runtime Index Builder",
-            build_fn=runtime_index_builder.build,
-            required=True,
-        ),
-        PipelineStage(
-            name="statistics",
-            label="Statistics",
-            build_fn=statistics.build,
-            required=False,
-        ),
-        PipelineStage(
-            name="validation",
-            label="Validation",
-            build_fn=validation.build,
-            required=False,  # Errors recorded in diagnostics; doesn't abort by default
-        ),
+        PipelineStage("teaching_units", "TeachingUnit Assembly (T3)",
+                      teaching_unit_builder.build, required=True),
+        PipelineStage("edg", "EDG Construction (T2)",
+                      edg_builder.build, required=True),
+        PipelineStage("edst", "EDST Construction (T1)",
+                      edst_builder.build, required=True),
+        PipelineStage("concept_progression_templates", "CPT Build (T4)",
+                      progression_builder.build, required=True),
+        PipelineStage("ekg", "EKG Construction (T5)",
+                      ekg_builder.build, required=False),
+        PipelineStage("curriculum_graph", "CurriculumGraph (T6)",
+                      curriculum_builder.build, required=False),
+        PipelineStage("navigation", "NavigationIndex Build (T8)",
+                      navigation_builder.build, required=True),
+        PipelineStage("runtime_indexes", "Runtime Index Build (T7)",
+                      runtime_index_builder.build, required=True),
+        PipelineStage("statistics", "Statistics",
+                      statistics.build, required=False),
+        PipelineStage("validation", "Validation Pass (T9)",
+                      validation.build, required=False),
     ]
-
-
-# Public API
-def get_pipeline_stages() -> List[PipelineStage]:
-    """Returns the ordered list of TKB pipeline stages."""
-    return _get_stages()
