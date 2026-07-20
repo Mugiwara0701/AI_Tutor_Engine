@@ -243,3 +243,8 @@ __all__ = [
     "validate_package",
     "validate_serialization",
 ]
+
+
+# Milestone 5.5: state module export, following the set_current_*()/
+# get_current_*()/has_current_*()/reset_*_state() pattern every other phase uses.
+from modules.master_knowledge_compiler import state  # noqa: F401

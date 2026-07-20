@@ -178,6 +178,9 @@ def _collect_chapter_state_references(build: Build) -> Dict[str, Optional[Dict[s
         # same reason every other reference here is (see this function's
         # own docstring).
         "document_structure_tree_reference": build.document_structure_tree_reference,
+        # Milestone 5.5: M5.3/M5.4 artifact references.
+        "master_knowledge_reference": build.master_knowledge_reference,
+        "optimized_knowledge_reference": build.optimized_knowledge_reference,
     }
 
 

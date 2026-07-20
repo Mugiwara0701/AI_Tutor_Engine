@@ -159,6 +159,12 @@ class ReferenceSnapshot:
     # build_reference_snapshot()'s own docstring for exactly what is
     # referenced and why.
     document_structure_tree_reference: Optional[Dict[str, Any]]
+    # Milestone 5.5: M5.3/M5.4 artifact registration.
+    # MasterKnowledgePackage (M5.3) and OptimizedKnowledgePackage (M5.4)
+    # references, following the exact same "read from chapter-scoped state,
+    # wrap with _reference()" pattern as all fields above.
+    master_knowledge_reference: Optional[Dict[str, Any]]
+    optimized_knowledge_reference: Optional[Dict[str, Any]]
 
 
 def build_reference_snapshot() -> ReferenceSnapshot:
@@ -195,6 +201,9 @@ def build_reference_snapshot() -> ReferenceSnapshot:
     # correct, tested, schema-following JSON shape for this artifact.
     import document_structure_tree.state as document_structure_tree_state
     from document_structure_tree.artifact import to_canonical_json as dst_to_canonical_json
+    # Milestone 5.5: M5.3/M5.4 state modules (same local-import rationale as above).
+    import modules.master_knowledge_compiler.state as mkc_state
+    import modules.knowledge_optimization.state as ko_state
 
     return ReferenceSnapshot(
         compiler_ir_reference=_reference(
@@ -226,6 +235,19 @@ def build_reference_snapshot() -> ReferenceSnapshot:
         document_structure_tree_reference=_reference(
             dst_to_canonical_json(document_structure_tree_state.get_current_document_structure_tree())
             if document_structure_tree_state.has_current_document_structure_tree() else None
+        ),
+        # Milestone 5.5: M5.3/M5.4 artifact references.
+        master_knowledge_reference=_reference(
+            mkc_state.get_current_master_knowledge_package().to_dict()
+            if mkc_state.has_current_master_knowledge_package()
+            and hasattr(mkc_state.get_current_master_knowledge_package(), "to_dict")
+            else None
+        ),
+        optimized_knowledge_reference=_reference(
+            ko_state.get_current_optimized_knowledge_package().to_dict()
+            if ko_state.has_current_optimized_knowledge_package()
+            and hasattr(ko_state.get_current_optimized_knowledge_package(), "to_dict")
+            else None
         ),
     )
 
@@ -318,6 +340,9 @@ class Build:
     # Milestone 5.2: Document Structure Tree (DST) artifact registration --
     # see ReferenceSnapshot's own comment above for what this mirrors.
     document_structure_tree_reference: Optional[Dict[str, Any]]
+    # Milestone 5.5: M5.3/M5.4 artifact registration -- same pattern.
+    master_knowledge_reference: Optional[Dict[str, Any]]
+    optimized_knowledge_reference: Optional[Dict[str, Any]]
 
     runtime_metadata: Dict[str, Any]
     execution_summary: Dict[str, Any]
@@ -380,6 +405,8 @@ class Build:
             incremental_validation_reference=self.incremental_validation_reference,
             incremental_finalization_reference=self.incremental_finalization_reference,
             document_structure_tree_reference=self.document_structure_tree_reference,
+            master_knowledge_reference=self.master_knowledge_reference,
+            optimized_knowledge_reference=self.optimized_knowledge_reference,
             runtime_metadata=self.runtime_metadata,
             execution_summary=self.execution_summary,
         )
@@ -468,6 +495,8 @@ def create_build(
         incremental_validation_reference=snapshot.incremental_validation_reference,
         incremental_finalization_reference=snapshot.incremental_finalization_reference,
         document_structure_tree_reference=snapshot.document_structure_tree_reference,
+        master_knowledge_reference=snapshot.master_knowledge_reference,
+        optimized_knowledge_reference=snapshot.optimized_knowledge_reference,
         runtime_metadata=runtime_metadata,
         execution_summary=execution_summary,
     )

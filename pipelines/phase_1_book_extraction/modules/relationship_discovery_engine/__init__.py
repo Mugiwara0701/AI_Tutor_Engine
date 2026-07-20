@@ -287,3 +287,7 @@ __all__ = [
     "validate_graph_export_ready",
     "validate_confidence_propagation",
 ]
+
+
+# Milestone 5.5: state module export.
+from modules.relationship_discovery_engine import state  # noqa: F401

@@ -122,3 +122,7 @@ __all__ = [
     "validate_optimized_package", "validate_retrieval_index",
     "validate_runtime_cache", "validate_analytics", "validate_serialization",
 ]
+
+
+# Milestone 5.5: state module export.
+from modules.knowledge_optimization import state  # noqa: F401
